@@ -1,0 +1,120 @@
+{
+  "name": "terminal-activity-markers",
+  "displayName": "Terminal Activity Markers",
+  "description": "Adds automatic Active, Recent, and Idle markers to VS Code terminal sessions.",
+  "version": "0.2.6",
+  "publisher": "jeress",
+  "license": "MIT",
+  "preview": true,
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "terminal",
+    "activity",
+    "sessions",
+    "markers",
+    "status",
+    "productivity"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jeress/terminal-activity-markers.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jeress/terminal-activity-markers/issues"
+  },
+  "homepage": "https://github.com/jeress/terminal-activity-markers#readme",
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:terminalActivityDashboard.sessions"
+  ],
+  "main": "./out/src/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test out/test/**/*.test.js",
+    "package": "vsce package --allow-missing-repository"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "terminalActivityDashboard.focusTerminal",
+        "title": "Terminal Activity Dashboard: Focus Terminal"
+      },
+      {
+        "command": "terminalActivityDashboard.refresh",
+        "title": "Terminal Activity Dashboard: Refresh"
+      },
+      {
+        "command": "terminalActivityDashboard.refreshNativeNames",
+        "title": "Terminal Activity Dashboard: Refresh Native Terminal Names"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "terminalActivityDashboard.sessions",
+          "name": "Terminal Activity",
+          "visibility": "visible",
+          "initialSize": 12
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "terminalActivityDashboard.sessions",
+        "contents": "No terminals are open.\n[Open a Terminal](command:workbench.action.terminal.new)"
+      }
+    ],
+    "configuration": {
+      "title": "Terminal Activity Dashboard",
+      "properties": {
+        "terminalActivityDashboard.activeAfterHours": {
+          "type": "number",
+          "default": 1,
+          "minimum": 0.0167,
+          "description": "Keep a terminal marked Active for this many hours after it was focused or used."
+        },
+        "terminalActivityDashboard.parkedAfterHours": {
+          "type": "number",
+          "default": 24,
+          "minimum": 0.0167,
+          "description": "Move a terminal from Recent to Idle after this many hours."
+        },
+        "terminalActivityDashboard.staleAfterHours": {
+          "type": "number",
+          "default": 168,
+          "minimum": 1,
+          "description": "Move an idle terminal from Parked to Stale after this many hours. Sessions are never closed automatically."
+        },
+        "terminalActivityDashboard.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 3600,
+          "description": "How often the dashboard updates activity ages and ordering."
+        },
+        "terminalActivityDashboard.nativeNameMarkers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically prefix native terminal names with activity markers like 🟢 Active, 🟡 Recent, and ⚪ Idle. Terminals used within the active window and running commands are marked green. This affects the built-in Terminal Explorer list."
+        },
+        "terminalActivityDashboard.renameExistingTerminals": {
+          "type": "boolean",
+          "default": true,
+          "description": "Also apply native name markers to terminals that were already open before the extension activated."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.93.0",
+    "@vscode/vsce": "^3.9.0",
+    "typescript": "^5.8.0"
+  }
+}

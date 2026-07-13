@@ -1,0 +1,12 @@
+.gitignore
+.github/**
+.vscode/**
+src/**
+test/**
+tsconfig.json
+node_modules/**
+*.vsix
+out/test/**
+**/*.map
+CONTRIBUTING.md
+RELEASE.md
