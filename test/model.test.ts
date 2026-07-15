@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifySession, formatAge } from '../src/model';
+import { classifySession, formatAge, stripNativeMarker } from '../src/model';
 
 const hour = 3_600_000;
 const thresholds = { activeAfterHours: 1, parkedAfterHours: 24, staleAfterHours: 168 };
@@ -23,4 +23,13 @@ test('age labels remain compact', () => {
   assert.equal(formatAge(now - 5 * 60_000, now), '5m');
   assert.equal(formatAge(now - 3 * hour, now), '3h');
   assert.equal(formatAge(now - 3 * 24 * hour, now), '3d');
+});
+
+test('native activity markers are completely removed', () => {
+  assert.equal(stripNativeMarker('🟢 Active zsh'), 'zsh');
+  assert.equal(stripNativeMarker('🟢 zsh'), 'zsh');
+  assert.equal(stripNativeMarker('🟢 Active 🟡 Recent zsh'), 'zsh');
+  assert.equal(stripNativeMarker('[1 RUN] project'), 'project');
+  assert.equal(stripNativeMarker('🟢 Active'), 'Terminal');
+  assert.equal(stripNativeMarker('zsh'), 'zsh');
 });

@@ -1,11 +1,16 @@
 {
   "name": "terminal-activity-markers",
-  "displayName": "Terminal Activity Markers",
-  "description": "Adds automatic Active, Recent, and Idle markers to VS Code terminal sessions.",
-  "version": "0.2.6",
+  "displayName": "Terminal Activity Monitor for VS Code",
+  "description": "Monitors terminal activity using colored dots in VS Code's native terminal list.",
+  "version": "1.0.0",
   "publisher": "jeress",
   "license": "MIT",
-  "preview": true,
+  "preview": false,
+  "icon": "media/terminal-activity.png",
+  "galleryBanner": {
+    "color": "#111827",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.93.0"
   },
@@ -17,6 +22,9 @@
     "activity",
     "sessions",
     "markers",
+    "dots",
+    "traffic light",
+    "terminal tabs",
     "status",
     "productivity"
   ],
@@ -29,8 +37,7 @@
   },
   "homepage": "https://github.com/jeress/terminal-activity-markers#readme",
   "activationEvents": [
-    "onStartupFinished",
-    "onView:terminalActivityDashboard.sessions"
+    "onStartupFinished"
   ],
   "main": "./out/src/extension.js",
   "scripts": {
@@ -42,66 +49,44 @@
   "contributes": {
     "commands": [
       {
-        "command": "terminalActivityDashboard.focusTerminal",
-        "title": "Terminal Activity Dashboard: Focus Terminal"
-      },
-      {
         "command": "terminalActivityDashboard.refresh",
-        "title": "Terminal Activity Dashboard: Refresh"
+        "title": "Terminal Activity Monitor: Refresh"
       },
       {
         "command": "terminalActivityDashboard.refreshNativeNames",
-        "title": "Terminal Activity Dashboard: Refresh Native Terminal Names"
-      }
-    ],
-    "views": {
-      "explorer": [
-        {
-          "id": "terminalActivityDashboard.sessions",
-          "name": "Terminal Activity",
-          "visibility": "visible",
-          "initialSize": 12
-        }
-      ]
-    },
-    "viewsWelcome": [
+        "title": "Terminal Activity Monitor: Refresh Native Terminal Names"
+      },
       {
-        "view": "terminalActivityDashboard.sessions",
-        "contents": "No terminals are open.\n[Open a Terminal](command:workbench.action.terminal.new)"
+        "command": "terminalActivityDashboard.clearNativeNames",
+        "title": "Terminal Activity Monitor: Disable and Clear Native Markers"
       }
     ],
     "configuration": {
-      "title": "Terminal Activity Dashboard",
+      "title": "Terminal Activity Monitor",
       "properties": {
         "terminalActivityDashboard.activeAfterHours": {
           "type": "number",
           "default": 1,
           "minimum": 0.0167,
-          "description": "Keep a terminal marked Active for this many hours after it was focused or used."
+          "description": "Keep a terminal green for this many hours after it is selected or reports shell command activity."
         },
         "terminalActivityDashboard.parkedAfterHours": {
           "type": "number",
           "default": 24,
           "minimum": 0.0167,
-          "description": "Move a terminal from Recent to Idle after this many hours."
-        },
-        "terminalActivityDashboard.staleAfterHours": {
-          "type": "number",
-          "default": 168,
-          "minimum": 1,
-          "description": "Move an idle terminal from Parked to Stale after this many hours. Sessions are never closed automatically."
+          "description": "Turn a terminal's dot from yellow to white after this many hours without activity."
         },
         "terminalActivityDashboard.refreshIntervalSeconds": {
           "type": "number",
           "default": 30,
           "minimum": 5,
           "maximum": 3600,
-          "description": "How often the dashboard updates activity ages and ordering."
+          "description": "How often native terminal activity dots are refreshed."
         },
         "terminalActivityDashboard.nativeNameMarkers": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically prefix native terminal names with activity markers like 🟢 Active, 🟡 Recent, and ⚪ Idle. Terminals used within the active window and running commands are marked green. This affects the built-in Terminal Explorer list."
+          "description": "Automatically prefix native terminal names with 🟢, 🟡, or ⚪ activity dots. Names update when commands run and activity thresholds are crossed. This can momentarily focus terminals because of VS Code API limitations."
         },
         "terminalActivityDashboard.renameExistingTerminals": {
           "type": "boolean",

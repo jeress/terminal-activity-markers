@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.0.0
+
+- Renamed the public display name to **Terminal Activity Monitor for VS Code** while preserving the existing extension ID.
+- Stable native terminal-list activity dots: `🟢` active, `🟡` recent, and `⚪` idle.
+- Activity follows terminal selection and shell command events without counting internal rename focus changes.
+- Removed the redundant Explorer and panel dashboards.
+- Added verified rename retries, legacy marker cleanup, and a clear-markers command.
+
+## 0.3.8
+
+- Mark the currently selected terminal green, including the active terminal when the extension starts.
+- Ignore focus changes caused by internal rename sweeps so they do not falsely mark every terminal active.
+
+## 0.3.7
+
+- Show compact `🟢`, `🟡`, and `⚪` activity dots directly in VS Code's native terminal list.
+- Removed the Explorer and panel dashboard views.
+- Stopped terminal focus changes from falsely recording command activity.
+- Added verified, retrying terminal renames and legacy marker cleanup.
+
 ## 0.2.6
 
 - Changed `Active` to mean used within the active time window, defaulting to one hour, or currently running a command.

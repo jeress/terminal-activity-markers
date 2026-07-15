@@ -11,6 +11,20 @@ export interface SessionActivity {
   lastActivity: number;
 }
 
+const LEGACY_ACTIVITY_LABEL = String.raw`(?:\[[0-9] (?:RUN|WAIT|IDLE|PARK|STALE)\]|Active|Recent|Idle)`;
+const NATIVE_NAME_MARKER = new RegExp(
+  String.raw`^(?:(?:[🟢🟡⚪]\s*)(?:${LEGACY_ACTIVITY_LABEL}(?:\s+|$))?|${LEGACY_ACTIVITY_LABEL}(?:\s+|$))`,
+  'u',
+);
+
+export function stripNativeMarker(value: string): string {
+  let stripped = value;
+  while (NATIVE_NAME_MARKER.test(stripped)) {
+    stripped = stripped.replace(NATIVE_NAME_MARKER, '');
+  }
+  return stripped.trimStart() || 'Terminal';
+}
+
 export function classifySession(
   session: SessionActivity,
   now: number,

@@ -29,4 +29,4 @@ Describe what you expected instead.
 
 ## Notes
 
-If this involves the native Terminal Explorer, include whether the issue happened during normal clicking/focus changes or after running `Terminal Activity Dashboard: Refresh Native Terminal Names`.
+If this involves the native terminal list, include whether the issue happened during normal clicking/focus changes or after running `Terminal Activity Monitor: Refresh Native Terminal Names`.

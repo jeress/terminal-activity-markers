@@ -1,20 +1,21 @@
-# Terminal Activity Markers
+# Terminal Activity Monitor for VS Code
 
-Terminal Activity Markers is a VS Code extension for people who keep many integrated terminal sessions open at once.
+[![CI](https://github.com/jeress/terminal-activity-markers/actions/workflows/ci.yml/badge.svg)](https://github.com/jeress/terminal-activity-markers/actions/workflows/ci.yml)
+[![Latest release](https://img.shields.io/github/v/release/jeress/terminal-activity-markers)](https://github.com/jeress/terminal-activity-markers/releases/latest)
 
-It adds automatic status prefixes to terminal names so the native Terminal Explorer is easier to scan:
+Terminal Activity Monitor for VS Code helps people who keep many integrated terminal sessions open at once.
 
-- `🟢 Active` — used within the active window, defaulting to one hour, or currently running a shell command.
-- `🟡 Recent` — used within the recent window, defaulting to 24 hours.
-- `⚪ Idle` — older than the recent window.
+It adds compact status dots to terminal names so the native terminal list is easier to scan:
 
-It also adds a small **Terminal Activity** view in the Explorer sidebar with the same Active, Recent, and Idle grouping.
+- `🟢` — used within the active window, defaulting to one hour, or currently running a shell command.
+- `🟡` — used within the recent window, defaulting to 24 hours.
+- `⚪` — older than the recent window.
 
 ## Why This Exists
 
 VS Code is excellent at keeping terminal sessions alive, but the built-in terminal list does not provide automatic sorting, age-based grouping, or row-level color/status customization for existing terminals.
 
-This extension is a pragmatic workaround. It watches terminal focus and shell-execution events, then prefixes terminal names with activity markers.
+This extension is a pragmatic workaround. It watches shell-execution events, then prefixes terminal names with activity dots.
 
 ## What It Does Not Do
 
@@ -25,18 +26,23 @@ This extension is a pragmatic workaround. It watches terminal focus and shell-ex
 
 Those capabilities are not exposed through VS Code's stable extension API.
 
-## Install From A VSIX
+## Install
 
-Download or build a `.vsix` package, then install it with VS Code:
+1. Download the `.vsix` from the [latest GitHub release](https://github.com/jeress/terminal-activity-markers/releases/latest).
+2. In VS Code, open the Extensions view.
+3. Open the `…` menu, choose **Install from VSIX…**, and select the downloaded file.
+4. Run **Developer: Reload Window** from the Command Palette.
+
+Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-0.2.6.vsix --force
+code --install-extension terminal-activity-markers-1.0.0.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-0.2.6.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.0.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -60,28 +66,28 @@ The package command creates a `.vsix` file in the project root.
 
 After installation, open several integrated terminals. The extension will mark their native terminal names as activity is observed:
 
-- Use or focus a terminal and it becomes `🟢 Active`.
-- Leave it alone past the active window and it becomes `🟡 Recent`.
-- Leave it alone past the recent window and it becomes `⚪ Idle`.
-
-The Explorer sidebar also includes a **Terminal Activity** section with the same grouping.
+- Select a terminal or run a shell command and it becomes `🟢 name`.
+- Leave it alone past the active window and it becomes `🟡 name`.
+- Leave it alone past the recent window and it becomes `⚪ name`.
 
 To manually force a full marker refresh, run:
 
 ```text
-Terminal Activity Dashboard: Refresh Native Terminal Names
+Terminal Activity Monitor: Refresh Native Terminal Names
 ```
 
 Use that command sparingly. VS Code only exposes a command to rename the active terminal, so a full refresh has to briefly switch through terminals to rename them.
+
+To remove the dots and turn off automatic markers, run **Terminal Activity Monitor: Disable and Clear Native Markers**. Re-enable them with the `nativeNameMarkers` setting.
 
 ## Settings
 
 | Setting | Default | Description |
 | --- | ---: | --- |
-| `terminalActivityDashboard.activeAfterHours` | `1` | Keep a terminal marked `Active` for this many hours after it was focused or used. |
-| `terminalActivityDashboard.parkedAfterHours` | `24` | Keep a terminal marked `Recent` until this many hours after last activity; older sessions become `Idle`. |
-| `terminalActivityDashboard.refreshIntervalSeconds` | `30` | Refresh cadence for the sidebar view and age calculations. |
-| `terminalActivityDashboard.nativeNameMarkers` | `true` | Prefix native terminal names with `🟢 Active`, `🟡 Recent`, or `⚪ Idle`. |
+| `terminalActivityDashboard.activeAfterHours` | `1` | Keep a terminal green for this many hours after selection or shell command activity. |
+| `terminalActivityDashboard.parkedAfterHours` | `24` | Turn a terminal's dot from yellow to white after this many hours without activity. |
+| `terminalActivityDashboard.refreshIntervalSeconds` | `30` | Refresh cadence for native terminal activity dots. |
+| `terminalActivityDashboard.nativeNameMarkers` | `true` | Prefix native terminal names with `🟢`, `🟡`, or `⚪`. |
 | `terminalActivityDashboard.renameExistingTerminals` | `true` | Apply native name markers to terminals that were open before the extension activated. |
 
 ## How Activity Is Detected
@@ -89,7 +95,7 @@ Use that command sparingly. VS Code only exposes a command to rename the active 
 The extension listens to VS Code terminal APIs for:
 
 - terminal creation and close events;
-- active terminal changes;
+- user-driven active terminal changes;
 - shell integration availability;
 - shell command start and end events.
 
@@ -108,11 +114,11 @@ VS Code does not currently provide a supported way for extensions to:
 - reorder existing native Terminal Explorer rows;
 - rename an arbitrary terminal without making it active.
 
-Because terminal renaming targets the active terminal, this extension avoids automatic full-list rename sweeps during ordinary clicking and focus changes. Normal use updates only the terminal being selected or used. The manual refresh command can still do a full sync when needed.
+Because terminal renaming targets the active terminal, a refresh briefly cycles through terminals whose dots need to change, then restores the previously active terminal. The extension verifies each rename and retries when VS Code focus changes lag behind.
 
-## Marketplace Status
+## Distribution
 
-This extension is marked as preview because it relies on terminal-name prefixes as a workaround for native Terminal Explorer limitations.
+Stable builds are available as GitHub release artifacts. A Visual Studio Marketplace listing is planned; until its publisher credentials are configured, install the VSIX from GitHub Releases.
 
 If VS Code eventually adds stable APIs for terminal row decoration, sorting, or arbitrary-terminal renaming, this extension should move to those APIs.
 
@@ -127,7 +133,7 @@ npm run package
 
 Useful files:
 
-- `src/extension.ts` — VS Code extension activation, terminal tracking, tree view, and native-name marker logic.
+- `src/extension.ts` — VS Code extension activation, terminal tracking, and native-name marker logic.
 - `src/model.ts` — activity bucket classification and age formatting.
 - `test/model.test.ts` — unit tests for activity classification.
 

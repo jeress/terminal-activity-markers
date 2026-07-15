@@ -17,7 +17,7 @@ Package and install a local VSIX:
 
 ```sh
 npm run package
-code --install-extension terminal-activity-markers-0.2.6.vsix --force
+code --install-extension terminal-activity-markers-1.0.0.vsix --force
 ```
 
 Reload the VS Code window after installation.
@@ -30,10 +30,10 @@ Do not add behavior that:
 
 - closes terminals automatically;
 - depends on undocumented VS Code internals;
-- repeatedly sweeps or focuses all terminals during ordinary click/focus changes;
+- treats focus changes caused by its own rename sweeps as user activity;
 - claims native terminal row coloring, decoration, sorting, or reordering.
 
-The native Terminal Explorer markers are implemented by renaming terminal sessions. VS Code only exposes a command to rename the active terminal, so full refresh behavior must remain explicit and conservative.
+The native terminal-list dots are implemented by renaming terminal sessions. VS Code only exposes a command to rename the active terminal, so rename sweeps must suppress their own focus events, verify each rename, and restore the user's active terminal.
 
 ## Before Opening A Pull Request
 
