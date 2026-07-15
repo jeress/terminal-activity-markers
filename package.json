@@ -2,7 +2,7 @@
   "name": "terminal-activity-markers",
   "displayName": "Terminal Activity Monitor for VS Code",
   "description": "Monitors terminal activity using colored dots in VS Code's native terminal list.",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "jeress",
   "license": "MIT",
   "preview": false,
@@ -68,7 +68,7 @@
           "type": "number",
           "default": 1,
           "minimum": 0.0167,
-          "description": "Keep a terminal green for this many hours after creation or reported shell command activity."
+          "description": "Keep a terminal green for this many hours after creation or detected process and shell-command activity. Terminal selection does not count as activity."
         },
         "terminalActivityDashboard.parkedAfterHours": {
           "type": "number",

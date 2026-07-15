@@ -36,13 +36,13 @@ Those capabilities are not exposed through VS Code's stable extension API.
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.0.1.vsix --force
+code --install-extension terminal-activity-markers-1.0.2.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.1.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.2.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -66,7 +66,7 @@ The package command creates a `.vsix` file in the project root.
 
 After installation, open several integrated terminals. The extension will mark their native terminal names as activity is observed:
 
-- Create a terminal or run a shell command and it becomes `🟢 name`.
+- Create a terminal, start a process, or run a shell command and it becomes `🟢 name`.
 - Clicking between terminals does not change their activity state.
 - Leave it alone past the active window and it becomes `🟡 name`.
 - Leave it alone past the recent window and it becomes `⚪ name`.
@@ -99,7 +99,9 @@ The extension listens to VS Code terminal APIs for:
 - shell integration availability;
 - shell command start and end events.
 
-If shell integration reports a running command, that terminal is marked Active even if it has not been focused recently.
+It also performs a lightweight, best-effort process-tree check using process IDs only. This lets it recognize long-running work, such as Codex, that started before the extension loaded. No command lines or terminal output are collected.
+
+If shell integration or process-tree inspection reports running work, that terminal stays green even if it has not been focused recently.
 
 VS Code does not expose arbitrary terminal output through a stable extension API, so background output that occurs outside shell-execution tracking may not update activity by itself.
 

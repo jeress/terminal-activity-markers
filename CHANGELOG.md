@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- Detect live child processes so work that began before extension startup is still marked green.
+- Keep terminal selection independent from activity state.
+
 ## 1.0.1
 
 - Terminal selection no longer changes activity timestamps or turns terminals green.

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { ActivityBucket, BucketThresholds, classifySession, stripNativeMarker } from './model';
+import { execFile } from 'node:child_process';
+import { ActivityBucket, BucketThresholds, classifySession, parseParentProcessIds, stripNativeMarker } from './model';
 
 interface PersistedActivity {
   processId: number;
@@ -13,6 +14,7 @@ interface TerminalActivity {
   lastActivity: number;
   lastCommand?: string;
   runningExecutions: number;
+  detectedRunning: boolean;
   processId?: number;
   existingAtActivation: boolean;
   lastAppliedNativeName?: string;
@@ -80,7 +82,7 @@ class TerminalActivityTracker implements vscode.Disposable {
     this.startRefreshTimer();
     void Promise.all(restoredTerminals).then(() => {
       void this.context.globalState.update(STORAGE_VERSION_KEY, STORAGE_VERSION);
-      this.refresh(true);
+      void this.refreshProcessActivity();
     });
   }
 
@@ -140,6 +142,7 @@ class TerminalActivityTracker implements vscode.Disposable {
         baseName: stripNativeMarker(terminal.name),
         lastActivity: this.initialLastActivity(existingAtActivation),
         runningExecutions: 0,
+        detectedRunning: false,
         existingAtActivation,
       };
       this.activities.set(terminal, activity);
@@ -184,7 +187,22 @@ class TerminalActivityTracker implements vscode.Disposable {
     const seconds = vscode.workspace
       .getConfiguration('terminalActivityDashboard')
       .get<number>('refreshIntervalSeconds', 30);
-    this.refreshTimer = setInterval(() => this.refresh(true), Math.max(5, seconds) * 1000);
+    this.refreshTimer = setInterval(() => { void this.refreshProcessActivity(); }, Math.max(5, seconds) * 1000);
+  }
+
+  private async refreshProcessActivity(): Promise<void> {
+    try {
+      const parentProcessIds = await readParentProcessIds();
+      const now = Date.now();
+      for (const activity of this.activities.values()) {
+        activity.detectedRunning = activity.processId !== undefined && parentProcessIds.has(activity.processId);
+        if (activity.detectedRunning) activity.lastActivity = now;
+      }
+      await this.persist();
+    } catch {
+      // Shell integration events remain available when process inspection is unsupported.
+    }
+    this.refresh(true);
   }
 
   private queueNativeNameRefresh(targetActivity?: TerminalActivity): void {
@@ -274,7 +292,7 @@ class TerminalActivityTracker implements vscode.Disposable {
 
   private classifyActivity(activity: TerminalActivity, now: number, thresholds: BucketThresholds): ActivityBucket {
     return classifySession(
-      { running: activity.runningExecutions > 0, lastActivity: activity.lastActivity },
+      { running: activity.runningExecutions > 0 || activity.detectedRunning, lastActivity: activity.lastActivity },
       now,
       thresholds,
     );
@@ -309,3 +327,24 @@ export function activate(context: vscode.ExtensionContext): void {
 }
 
 export function deactivate(): void {}
+
+async function readParentProcessIds(): Promise<Set<number>> {
+  const output = process.platform === 'win32'
+    ? await executeProcess('powershell.exe', [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }',
+      ])
+    : await executeProcess('ps', ['-axo', 'pid=,ppid=']);
+  return parseParentProcessIds(output);
+}
+
+function executeProcess(file: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(file, args, { maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout);
+    });
+  });
+}

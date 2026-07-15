@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifySession, formatAge, stripNativeMarker } from '../src/model';
+import { classifySession, formatAge, parseParentProcessIds, stripNativeMarker } from '../src/model';
 
 const hour = 3_600_000;
 const thresholds = { activeAfterHours: 1, parkedAfterHours: 24, staleAfterHours: 168 };
@@ -32,4 +32,11 @@ test('native activity markers are completely removed', () => {
   assert.equal(stripNativeMarker('[1 RUN] project'), 'project');
   assert.equal(stripNativeMarker('🟢 Active'), 'Terminal');
   assert.equal(stripNativeMarker('zsh'), 'zsh');
+});
+
+test('process listings identify parents with live child processes', () => {
+  assert.deepEqual(
+    [...parseParentProcessIds('101 1\n202 101\n303 202\ninvalid\n404 404\n')].sort((a, b) => a - b),
+    [1, 101, 202],
+  );
 });

@@ -11,6 +11,20 @@ export interface SessionActivity {
   lastActivity: number;
 }
 
+export function parseParentProcessIds(output: string): Set<number> {
+  const parentProcessIds = new Set<number>();
+  for (const line of output.split(/\r?\n/u)) {
+    const match = line.trim().match(/^(\d+)\s+(\d+)$/u);
+    if (!match) continue;
+    const processId = Number(match[1]);
+    const parentProcessId = Number(match[2]);
+    if (processId > 0 && parentProcessId > 0 && processId !== parentProcessId) {
+      parentProcessIds.add(parentProcessId);
+    }
+  }
+  return parentProcessIds;
+}
+
 const LEGACY_ACTIVITY_LABEL = String.raw`(?:\[[0-9] (?:RUN|WAIT|IDLE|PARK|STALE)\]|Active|Recent|Idle)`;
 const NATIVE_NAME_MARKER = new RegExp(
   String.raw`^(?:(?:[🟢🟡⚪]\s*)(?:${LEGACY_ACTIVITY_LABEL}(?:\s+|$))?|${LEGACY_ACTIVITY_LABEL}(?:\s+|$))`,
