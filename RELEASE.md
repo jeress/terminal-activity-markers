@@ -31,7 +31,8 @@ Public releases use semantic versions such as `1.0.0`, a matching `v1.0.0` Git t
    - one terminal older than the active window;
    - manual `Terminal Activity Monitor: Refresh Native Terminal Names`;
    - no Terminal Activity view appears in Explorer;
-   - the selected terminal is green while untouched migrated terminals begin yellow.
+   - clicking between terminals does not change their dots;
+   - a new shell command turns its terminal green while untouched migrated terminals begin yellow.
 
 8. Commit and tag the release:
 

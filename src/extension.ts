@@ -20,7 +20,7 @@ interface TerminalActivity {
 
 const STORAGE_KEY = 'terminalActivityDashboard.activities';
 const STORAGE_VERSION_KEY = 'terminalActivityDashboard.activitiesVersion';
-const STORAGE_VERSION = 3;
+const STORAGE_VERSION = 4;
 const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = {
   running: '🟢',
   recent: '🟡',
@@ -48,10 +48,11 @@ class TerminalActivityTracker implements vscode.Disposable {
       vscode.window.onDidOpenTerminal((terminal) => { void this.trackTerminal(terminal, false); }),
       vscode.window.onDidCloseTerminal((terminal) => this.removeTerminal(terminal)),
       vscode.window.onDidChangeActiveTerminal((terminal) => {
-        if (terminal && !this.applyingNativeNames) this.touch(terminal);
+        if (terminal && !this.applyingNativeNames) this.ensureActivity(terminal);
       }),
       vscode.window.onDidChangeTerminalShellIntegration((event) => {
-        this.touch(event.terminal, false);
+        const activity = this.ensureActivity(event.terminal);
+        this.refresh('terminal', activity);
       }),
       vscode.window.onDidStartTerminalShellExecution((event) => {
         const activity = this.ensureActivity(event.terminal);
@@ -79,12 +80,6 @@ class TerminalActivityTracker implements vscode.Disposable {
     this.startRefreshTimer();
     void Promise.all(restoredTerminals).then(() => {
       void this.context.globalState.update(STORAGE_VERSION_KEY, STORAGE_VERSION);
-      const activeTerminal = vscode.window.activeTerminal;
-      if (activeTerminal) {
-        const activity = this.ensureActivity(activeTerminal);
-        activity.lastActivity = Date.now();
-        void this.persist();
-      }
       this.refresh(true);
     });
   }
@@ -152,13 +147,6 @@ class TerminalActivityTracker implements vscode.Disposable {
       activity.baseName = stripNativeMarker(terminal.name);
     }
     return activity;
-  }
-
-  private touch(terminal: vscode.Terminal, updateTimestamp = true): void {
-    const activity = this.ensureActivity(terminal);
-    if (updateTimestamp) activity.lastActivity = Date.now();
-    this.refresh('terminal', activity);
-    void this.persist();
   }
 
   private removeTerminal(terminal: vscode.Terminal): void {

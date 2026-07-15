@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.1
+
+- Terminal selection no longer changes activity timestamps or turns terminals green.
+- Reset timestamps polluted by focus-based tracking when upgrading from 1.0.0.
+
 ## 1.0.0
 
 - Renamed the public display name to **Terminal Activity Monitor for VS Code** while preserving the existing extension ID.

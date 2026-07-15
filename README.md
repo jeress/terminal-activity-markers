@@ -36,13 +36,13 @@ Those capabilities are not exposed through VS Code's stable extension API.
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.0.0.vsix --force
+code --install-extension terminal-activity-markers-1.0.1.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.0.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.1.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -66,7 +66,8 @@ The package command creates a `.vsix` file in the project root.
 
 After installation, open several integrated terminals. The extension will mark their native terminal names as activity is observed:
 
-- Select a terminal or run a shell command and it becomes `🟢 name`.
+- Create a terminal or run a shell command and it becomes `🟢 name`.
+- Clicking between terminals does not change their activity state.
 - Leave it alone past the active window and it becomes `🟡 name`.
 - Leave it alone past the recent window and it becomes `⚪ name`.
 
@@ -84,7 +85,7 @@ To remove the dots and turn off automatic markers, run **Terminal Activity Monit
 
 | Setting | Default | Description |
 | --- | ---: | --- |
-| `terminalActivityDashboard.activeAfterHours` | `1` | Keep a terminal green for this many hours after selection or shell command activity. |
+| `terminalActivityDashboard.activeAfterHours` | `1` | Keep a terminal green for this many hours after creation or reported shell command activity. |
 | `terminalActivityDashboard.parkedAfterHours` | `24` | Turn a terminal's dot from yellow to white after this many hours without activity. |
 | `terminalActivityDashboard.refreshIntervalSeconds` | `30` | Refresh cadence for native terminal activity dots. |
 | `terminalActivityDashboard.nativeNameMarkers` | `true` | Prefix native terminal names with `🟢`, `🟡`, or `⚪`. |
@@ -95,7 +96,6 @@ To remove the dots and turn off automatic markers, run **Terminal Activity Monit
 The extension listens to VS Code terminal APIs for:
 
 - terminal creation and close events;
-- user-driven active terminal changes;
 - shell integration availability;
 - shell command start and end events.
 
