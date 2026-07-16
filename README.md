@@ -36,13 +36,13 @@ Those capabilities are not exposed through VS Code's stable extension API.
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.0.2.vsix --force
+code --install-extension terminal-activity-markers-1.0.3.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.2.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.3.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -87,7 +87,7 @@ To remove the dots and turn off automatic markers, run **Terminal Activity Monit
 | --- | ---: | --- |
 | `terminalActivityDashboard.activeAfterHours` | `1` | Keep a terminal green for this many hours after creation or reported shell command activity. |
 | `terminalActivityDashboard.parkedAfterHours` | `24` | Turn a terminal's dot from yellow to white after this many hours without activity. |
-| `terminalActivityDashboard.refreshIntervalSeconds` | `30` | Refresh cadence for native terminal activity dots. |
+| `terminalActivityDashboard.refreshIntervalSeconds` | `5` | Refresh cadence for native terminal activity dots. |
 | `terminalActivityDashboard.nativeNameMarkers` | `true` | Prefix native terminal names with `🟢`, `🟡`, or `⚪`. |
 | `terminalActivityDashboard.renameExistingTerminals` | `true` | Apply native name markers to terminals that were open before the extension activated. |
 
@@ -99,7 +99,7 @@ The extension listens to VS Code terminal APIs for:
 - shell integration availability;
 - shell command start and end events.
 
-It also performs a lightweight, best-effort process-tree check using process IDs only. This lets it recognize long-running work, such as Codex, that started before the extension loaded. No command lines or terminal output are collected.
+It also samples lightweight process-start and CPU counters using process IDs only. This lets it recognize recent work inside long-running tools such as Codex without keeping an idle process green forever. No command lines or terminal output are collected.
 
 If shell integration or process-tree inspection reports running work, that terminal stays green even if it has not been focused recently.
 

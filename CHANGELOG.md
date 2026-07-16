@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+
+- Sample recent CPU and process-start activity instead of treating every long-lived child process as continuously active.
+- Reduce the default detection interval from 30 seconds to 5 seconds.
+
 ## 1.0.2
 
 - Detect live child processes so work that began before extension startup is still marked green.

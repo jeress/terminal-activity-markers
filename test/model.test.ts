@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifySession, formatAge, parseParentProcessIds, stripNativeMarker } from '../src/model';
+import { classifySession, detectActiveProcessRoots, formatAge, parseProcessSamples, stripNativeMarker } from '../src/model';
 
 const hour = 3_600_000;
 const thresholds = { activeAfterHours: 1, parkedAfterHours: 24, staleAfterHours: 168 };
@@ -34,9 +34,24 @@ test('native activity markers are completely removed', () => {
   assert.equal(stripNativeMarker('zsh'), 'zsh');
 });
 
-test('process listings identify parents with live child processes', () => {
+test('process listings parse elapsed CPU time', () => {
   assert.deepEqual(
-    [...parseParentProcessIds('101 1\n202 101\n303 202\ninvalid\n404 404\n')].sort((a, b) => a - b),
-    [1, 101, 202],
+    parseProcessSamples('101 1 0:01.25\n202 101 1:02:03.50\ninvalid\n'),
+    [
+      { processId: 101, parentProcessId: 1, cpuSeconds: 1.25 },
+      { processId: 202, parentProcessId: 101, cpuSeconds: 3723.5 },
+    ],
   );
+});
+
+test('only new or CPU-active descendant processes activate a terminal root', () => {
+  const previous = new Map([[10, 0.1], [20, 1], [30, 2]]);
+  const samples = [
+    { processId: 10, parentProcessId: 1, cpuSeconds: 0.1 },
+    { processId: 20, parentProcessId: 10, cpuSeconds: 1.08 },
+    { processId: 30, parentProcessId: 1, cpuSeconds: 2.01 },
+    { processId: 40, parentProcessId: 30, cpuSeconds: 0 },
+  ];
+  assert.deepEqual([...detectActiveProcessRoots([10, 30], previous, samples, 0.05)].sort(), [10, 30]);
+  assert.deepEqual([...detectActiveProcessRoots([10, 30], new Map(), samples, 0.05)], []);
 });

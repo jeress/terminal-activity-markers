@@ -11,18 +11,70 @@ export interface SessionActivity {
   lastActivity: number;
 }
 
-export function parseParentProcessIds(output: string): Set<number> {
-  const parentProcessIds = new Set<number>();
+export interface ProcessSample {
+  processId: number;
+  parentProcessId: number;
+  cpuSeconds: number;
+}
+
+export function parseProcessSamples(output: string, cpuValueIsTicks = false): ProcessSample[] {
+  const samples: ProcessSample[] = [];
   for (const line of output.split(/\r?\n/u)) {
-    const match = line.trim().match(/^(\d+)\s+(\d+)$/u);
+    const match = line.trim().match(/^(\d+)\s+(\d+)\s+([\d:.]+)$/u);
     if (!match) continue;
     const processId = Number(match[1]);
     const parentProcessId = Number(match[2]);
-    if (processId > 0 && parentProcessId > 0 && processId !== parentProcessId) {
-      parentProcessIds.add(parentProcessId);
-    }
+    const cpuSeconds = cpuValueIsTicks
+      ? Number(match[3]) / 10_000_000
+      : parseCpuDuration(match[3]);
+    if (processId <= 0 || parentProcessId < 0 || !Number.isFinite(cpuSeconds)) continue;
+    samples.push({ processId, parentProcessId, cpuSeconds });
   }
-  return parentProcessIds;
+  return samples;
+}
+
+export function detectActiveProcessRoots(
+  rootProcessIds: Iterable<number>,
+  previousCpuByProcessId: ReadonlyMap<number, number>,
+  samples: readonly ProcessSample[],
+  minimumCpuDeltaSeconds: number,
+): Set<number> {
+  const roots = new Set(rootProcessIds);
+  const parentByProcessId = new Map(samples.map((sample) => [sample.processId, sample.parentProcessId]));
+  const activeRoots = new Set<number>();
+  const hasBaseline = previousCpuByProcessId.size > 0;
+
+  for (const sample of samples) {
+    const root = findProcessRoot(sample.processId, roots, parentByProcessId);
+    if (root === undefined) continue;
+    const previousCpu = previousCpuByProcessId.get(sample.processId);
+    const startedAfterBaseline = hasBaseline && previousCpu === undefined && sample.processId !== root;
+    const usedCpu = previousCpu !== undefined && sample.cpuSeconds - previousCpu >= minimumCpuDeltaSeconds;
+    if (startedAfterBaseline || usedCpu) activeRoots.add(root);
+  }
+
+  return activeRoots;
+}
+
+function parseCpuDuration(value: string): number {
+  const parts = value.split(':').map(Number);
+  if (parts.some((part) => !Number.isFinite(part))) return Number.NaN;
+  return parts.reduce((total, part) => total * 60 + part, 0);
+}
+
+function findProcessRoot(
+  processId: number,
+  roots: ReadonlySet<number>,
+  parentByProcessId: ReadonlyMap<number, number>,
+): number | undefined {
+  let current = processId;
+  const visited = new Set<number>();
+  while (current > 0 && !visited.has(current)) {
+    if (roots.has(current)) return current;
+    visited.add(current);
+    current = parentByProcessId.get(current) ?? 0;
+  }
+  return undefined;
 }
 
 const LEGACY_ACTIVITY_LABEL = String.raw`(?:\[[0-9] (?:RUN|WAIT|IDLE|PARK|STALE)\]|Active|Recent|Idle)`;

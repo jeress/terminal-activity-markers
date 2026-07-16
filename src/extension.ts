@@ -1,6 +1,13 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
-import { ActivityBucket, BucketThresholds, classifySession, parseParentProcessIds, stripNativeMarker } from './model';
+import {
+  ActivityBucket,
+  BucketThresholds,
+  classifySession,
+  detectActiveProcessRoots,
+  parseProcessSamples,
+  stripNativeMarker,
+} from './model';
 
 interface PersistedActivity {
   processId: number;
@@ -14,7 +21,6 @@ interface TerminalActivity {
   lastActivity: number;
   lastCommand?: string;
   runningExecutions: number;
-  detectedRunning: boolean;
   processId?: number;
   existingAtActivation: boolean;
   lastAppliedNativeName?: string;
@@ -22,7 +28,8 @@ interface TerminalActivity {
 
 const STORAGE_KEY = 'terminalActivityDashboard.activities';
 const STORAGE_VERSION_KEY = 'terminalActivityDashboard.activitiesVersion';
-const STORAGE_VERSION = 4;
+const STORAGE_VERSION = 5;
+const MINIMUM_CPU_DELTA_SECONDS = 0.05;
 const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = {
   running: '🟢',
   recent: '🟡',
@@ -36,6 +43,7 @@ class TerminalActivityTracker implements vscode.Disposable {
   private persistedByProcessId = new Map<number, PersistedActivity>();
   private refreshTimer?: NodeJS.Timeout;
   private nativeNameRefresh = Promise.resolve();
+  private previousCpuByProcessId = new Map<number, number>();
   private readonly migrateLegacyFocusActivity: boolean;
   private applyingNativeNames = false;
 
@@ -142,7 +150,6 @@ class TerminalActivityTracker implements vscode.Disposable {
         baseName: stripNativeMarker(terminal.name),
         lastActivity: this.initialLastActivity(existingAtActivation),
         runningExecutions: 0,
-        detectedRunning: false,
         existingAtActivation,
       };
       this.activities.set(terminal, activity);
@@ -192,13 +199,22 @@ class TerminalActivityTracker implements vscode.Disposable {
 
   private async refreshProcessActivity(): Promise<void> {
     try {
-      const parentProcessIds = await readParentProcessIds();
+      const samples = await readProcessSamples();
+      const rootProcessIds = [...this.activities.values()]
+        .map((activity) => activity.processId)
+        .filter((processId): processId is number => processId !== undefined);
+      const activeRoots = detectActiveProcessRoots(
+        rootProcessIds,
+        this.previousCpuByProcessId,
+        samples,
+        MINIMUM_CPU_DELTA_SECONDS,
+      );
       const now = Date.now();
       for (const activity of this.activities.values()) {
-        activity.detectedRunning = activity.processId !== undefined && parentProcessIds.has(activity.processId);
-        if (activity.detectedRunning) activity.lastActivity = now;
+        if (activity.processId !== undefined && activeRoots.has(activity.processId)) activity.lastActivity = now;
       }
-      await this.persist();
+      this.previousCpuByProcessId = new Map(samples.map((sample) => [sample.processId, sample.cpuSeconds]));
+      if (activeRoots.size > 0) await this.persist();
     } catch {
       // Shell integration events remain available when process inspection is unsupported.
     }
@@ -292,7 +308,7 @@ class TerminalActivityTracker implements vscode.Disposable {
 
   private classifyActivity(activity: TerminalActivity, now: number, thresholds: BucketThresholds): ActivityBucket {
     return classifySession(
-      { running: activity.runningExecutions > 0 || activity.detectedRunning, lastActivity: activity.lastActivity },
+      { running: activity.runningExecutions > 0, lastActivity: activity.lastActivity },
       now,
       thresholds,
     );
@@ -328,16 +344,17 @@ export function activate(context: vscode.ExtensionContext): void {
 
 export function deactivate(): void {}
 
-async function readParentProcessIds(): Promise<Set<number>> {
-  const output = process.platform === 'win32'
+async function readProcessSamples() {
+  const windows = process.platform === 'win32';
+  const output = windows
     ? await executeProcess('powershell.exe', [
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }',
+        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.KernelModeTime + $_.UserModeTime)" }',
       ])
-    : await executeProcess('ps', ['-axo', 'pid=,ppid=']);
-  return parseParentProcessIds(output);
+    : await executeProcess('ps', ['-axo', 'pid=,ppid=,time=']);
+  return parseProcessSamples(output, windows);
 }
 
 function executeProcess(file: string, args: string[]): Promise<string> {
