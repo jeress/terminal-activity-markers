@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.4
+
+- Track shell-execution output timing while discarding output content.
+- Track terminal-device output timestamps on macOS and Linux without reading output content.
+- Require substantial CPU activity and stop treating command/process lifetime as continuous activity.
+- Initialize unknown pre-existing terminals as white so only observed work promotes them.
+
 ## 1.0.3
 
 - Sample recent CPU and process-start activity instead of treating every long-lived child process as continuously active.

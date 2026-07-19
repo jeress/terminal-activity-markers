@@ -22,7 +22,7 @@ This extension is a pragmatic workaround. It watches shell-execution events, the
 - It does not close terminal sessions automatically.
 - It does not truly color native Terminal Explorer rows.
 - It does not truly reorder the native Terminal Explorer.
-- It does not read arbitrary terminal output.
+- It does not inspect or store terminal output content.
 
 Those capabilities are not exposed through VS Code's stable extension API.
 
@@ -36,13 +36,13 @@ Those capabilities are not exposed through VS Code's stable extension API.
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.0.3.vsix --force
+code --install-extension terminal-activity-markers-1.0.4.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.3.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.4.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -99,9 +99,9 @@ The extension listens to VS Code terminal APIs for:
 - shell integration availability;
 - shell command start and end events.
 
-It also samples lightweight process-start and CPU counters using process IDs only. This lets it recognize recent work inside long-running tools such as Codex without keeping an idle process green forever. No command lines or terminal output are collected.
+For shell-integrated commands, it observes output timing and immediately discards the content. On macOS and Linux, it also checks terminal-device modification times; on every platform it samples lightweight CPU counters as a fallback. This lets it recognize recent work inside long-running tools such as Codex without keeping an idle process green forever. No command lines or output content are collected.
 
-If shell integration or process-tree inspection reports running work, that terminal stays green even if it has not been focused recently.
+Recent shell output or substantial CPU activity keeps a terminal green even if it has not been focused recently. Merely keeping a process open does not.
 
 VS Code does not expose arbitrary terminal output through a stable extension API, so background output that occurs outside shell-execution tracking may not update activity by itself.
 

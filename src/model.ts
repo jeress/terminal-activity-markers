@@ -1,4 +1,4 @@
-export type ActivityBucket = 'running' | 'recent' | 'parked' | 'stale';
+export type ActivityBucket = 'active' | 'recent' | 'parked' | 'stale';
 
 export interface BucketThresholds {
   activeAfterHours: number;
@@ -7,7 +7,6 @@ export interface BucketThresholds {
 }
 
 export interface SessionActivity {
-  running: boolean;
   lastActivity: number;
 }
 
@@ -33,6 +32,16 @@ export function parseProcessSamples(output: string, cpuValueIsTicks = false): Pr
   return samples;
 }
 
+export function parseProcessTerminalDevices(output: string): Map<number, string> {
+  const devices = new Map<number, string>();
+  for (const line of output.split(/\r?\n/u)) {
+    const match = line.trim().match(/^(\d+)\s+([a-zA-Z0-9/_-]+)$/u);
+    if (!match || match[2] === '??' || match[2].includes('..')) continue;
+    devices.set(Number(match[1]), match[2]);
+  }
+  return devices;
+}
+
 export function detectActiveProcessRoots(
   rootProcessIds: Iterable<number>,
   previousCpuByProcessId: ReadonlyMap<number, number>,
@@ -42,15 +51,12 @@ export function detectActiveProcessRoots(
   const roots = new Set(rootProcessIds);
   const parentByProcessId = new Map(samples.map((sample) => [sample.processId, sample.parentProcessId]));
   const activeRoots = new Set<number>();
-  const hasBaseline = previousCpuByProcessId.size > 0;
-
   for (const sample of samples) {
     const root = findProcessRoot(sample.processId, roots, parentByProcessId);
     if (root === undefined) continue;
     const previousCpu = previousCpuByProcessId.get(sample.processId);
-    const startedAfterBaseline = hasBaseline && previousCpu === undefined && sample.processId !== root;
     const usedCpu = previousCpu !== undefined && sample.cpuSeconds - previousCpu >= minimumCpuDeltaSeconds;
-    if (startedAfterBaseline || usedCpu) activeRoots.add(root);
+    if (usedCpu) activeRoots.add(root);
   }
 
   return activeRoots;
@@ -96,13 +102,9 @@ export function classifySession(
   now: number,
   thresholds: BucketThresholds,
 ): ActivityBucket {
-  if (session.running) {
-    return 'running';
-  }
-
   const ageHours = Math.max(0, now - session.lastActivity) / 3_600_000;
   if (ageHours < thresholds.activeAfterHours) {
-    return 'running';
+    return 'active';
   }
   if (ageHours < thresholds.parkedAfterHours) {
     return 'recent';

@@ -1,20 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { classifySession, detectActiveProcessRoots, formatAge, parseProcessSamples, stripNativeMarker } from '../src/model';
+import {
+  classifySession,
+  detectActiveProcessRoots,
+  formatAge,
+  parseProcessSamples,
+  parseProcessTerminalDevices,
+  stripNativeMarker,
+} from '../src/model';
 
 const hour = 3_600_000;
 const thresholds = { activeAfterHours: 1, parkedAfterHours: 24, staleAfterHours: 168 };
 
-test('running always wins regardless of age', () => {
-  assert.equal(classifySession({ running: true, lastActivity: 0 }, 200 * hour, thresholds), 'running');
-});
-
 test('idle sessions move through active, recent, parked, and stale', () => {
   const now = 200 * hour;
-  assert.equal(classifySession({ running: false, lastActivity: now - 30 * 60_000 }, now, thresholds), 'running');
-  assert.equal(classifySession({ running: false, lastActivity: now - hour }, now, thresholds), 'recent');
-  assert.equal(classifySession({ running: false, lastActivity: now - 24 * hour }, now, thresholds), 'parked');
-  assert.equal(classifySession({ running: false, lastActivity: now - 168 * hour }, now, thresholds), 'stale');
+  assert.equal(classifySession({ lastActivity: now - 30 * 60_000 }, now, thresholds), 'active');
+  assert.equal(classifySession({ lastActivity: now - hour }, now, thresholds), 'recent');
+  assert.equal(classifySession({ lastActivity: now - 24 * hour }, now, thresholds), 'parked');
+  assert.equal(classifySession({ lastActivity: now - 168 * hour }, now, thresholds), 'stale');
 });
 
 test('age labels remain compact', () => {
@@ -44,7 +47,14 @@ test('process listings parse elapsed CPU time', () => {
   );
 });
 
-test('only new or CPU-active descendant processes activate a terminal root', () => {
+test('terminal device listings accept safe tty paths', () => {
+  assert.deepEqual(
+    [...parseProcessTerminalDevices('101 ttys005\n202 pts/3\n303 ??\n404 ../../tmp/bad\n')],
+    [[101, 'ttys005'], [202, 'pts/3']],
+  );
+});
+
+test('only CPU-active descendant processes activate a terminal root', () => {
   const previous = new Map([[10, 0.1], [20, 1], [30, 2]]);
   const samples = [
     { processId: 10, parentProcessId: 1, cpuSeconds: 0.1 },
@@ -52,6 +62,6 @@ test('only new or CPU-active descendant processes activate a terminal root', () 
     { processId: 30, parentProcessId: 1, cpuSeconds: 2.01 },
     { processId: 40, parentProcessId: 30, cpuSeconds: 0 },
   ];
-  assert.deepEqual([...detectActiveProcessRoots([10, 30], previous, samples, 0.05)].sort(), [10, 30]);
+  assert.deepEqual([...detectActiveProcessRoots([10, 30], previous, samples, 0.05)].sort(), [10]);
   assert.deepEqual([...detectActiveProcessRoots([10, 30], new Map(), samples, 0.05)], []);
 });

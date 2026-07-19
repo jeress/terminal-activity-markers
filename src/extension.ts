@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
 import { execFile } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import {
   ActivityBucket,
   BucketThresholds,
   classifySession,
   detectActiveProcessRoots,
   parseProcessSamples,
+  parseProcessTerminalDevices,
   stripNativeMarker,
 } from './model';
 
@@ -20,7 +22,7 @@ interface TerminalActivity {
   baseName: string;
   lastActivity: number;
   lastCommand?: string;
-  runningExecutions: number;
+  lastActivityNotification: number;
   processId?: number;
   existingAtActivation: boolean;
   lastAppliedNativeName?: string;
@@ -28,10 +30,10 @@ interface TerminalActivity {
 
 const STORAGE_KEY = 'terminalActivityDashboard.activities';
 const STORAGE_VERSION_KEY = 'terminalActivityDashboard.activitiesVersion';
-const STORAGE_VERSION = 5;
-const MINIMUM_CPU_DELTA_SECONDS = 0.05;
+const STORAGE_VERSION = 6;
+const MINIMUM_CPU_DELTA_SECONDS = 0.5;
 const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = {
-  running: '🟢',
+  active: '🟢',
   recent: '🟡',
   parked: '⚪',
   stale: '⚪',
@@ -44,6 +46,8 @@ class TerminalActivityTracker implements vscode.Disposable {
   private refreshTimer?: NodeJS.Timeout;
   private nativeNameRefresh = Promise.resolve();
   private previousCpuByProcessId = new Map<number, number>();
+  private previousTerminalMtimeByProcessId = new Map<number, number>();
+  private readonly skipNextTerminalDeviceSample = new Set<number>();
   private readonly migrateLegacyFocusActivity: boolean;
   private applyingNativeNames = false;
 
@@ -66,18 +70,18 @@ class TerminalActivityTracker implements vscode.Disposable {
       }),
       vscode.window.onDidStartTerminalShellExecution((event) => {
         const activity = this.ensureActivity(event.terminal);
-        activity.runningExecutions += 1;
-        activity.lastActivity = Date.now();
         activity.lastCommand = event.execution.commandLine.value || activity.lastCommand;
-        this.refresh('terminal', activity);
-        void this.persist();
+        this.recordActivity(activity, true);
+        try {
+          const output = event.execution.read();
+          void this.monitorExecutionOutput(activity, output);
+        } catch {
+          // Some shell integrations cannot stream execution output.
+        }
       }),
       vscode.window.onDidEndTerminalShellExecution((event) => {
         const activity = this.ensureActivity(event.terminal);
-        activity.runningExecutions = Math.max(0, activity.runningExecutions - 1);
-        activity.lastActivity = Date.now();
-        this.refresh('terminal', activity);
-        void this.persist();
+        this.recordActivity(activity, true);
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('terminalActivityDashboard')) {
@@ -149,7 +153,7 @@ class TerminalActivityTracker implements vscode.Disposable {
         terminal,
         baseName: stripNativeMarker(terminal.name),
         lastActivity: this.initialLastActivity(existingAtActivation),
-        runningExecutions: 0,
+        lastActivityNotification: 0,
         existingAtActivation,
       };
       this.activities.set(terminal, activity);
@@ -180,8 +184,8 @@ class TerminalActivityTracker implements vscode.Disposable {
 
   private initialLastActivity(existingAtActivation: boolean): number {
     if (!existingAtActivation) return Date.now();
-    const activeAfterMs = this.thresholds().activeAfterHours * 3_600_000;
-    return Date.now() - activeAfterMs;
+    const parkedAfterMs = this.thresholds().parkedAfterHours * 3_600_000;
+    return Date.now() - parkedAfterMs;
   }
 
   private restoredLastActivity(persistedLastActivity: number, activity: TerminalActivity): number {
@@ -209,16 +213,41 @@ class TerminalActivityTracker implements vscode.Disposable {
         samples,
         MINIMUM_CPU_DELTA_SECONDS,
       );
-      const now = Date.now();
+      const terminalMtimes = await readTerminalDeviceMtimes(rootProcessIds);
+      for (const [processId, mtimeMs] of terminalMtimes) {
+        const previousMtimeMs = this.previousTerminalMtimeByProcessId.get(processId);
+        if (this.skipNextTerminalDeviceSample.delete(processId)) continue;
+        if (previousMtimeMs !== undefined && mtimeMs > previousMtimeMs) activeRoots.add(processId);
+      }
       for (const activity of this.activities.values()) {
-        if (activity.processId !== undefined && activeRoots.has(activity.processId)) activity.lastActivity = now;
+        if (activity.processId !== undefined && activeRoots.has(activity.processId)) this.recordActivity(activity);
       }
       this.previousCpuByProcessId = new Map(samples.map((sample) => [sample.processId, sample.cpuSeconds]));
-      if (activeRoots.size > 0) await this.persist();
+      this.previousTerminalMtimeByProcessId = terminalMtimes;
     } catch {
       // Shell integration events remain available when process inspection is unsupported.
     }
     this.refresh(true);
+  }
+
+  private recordActivity(activity: TerminalActivity, forceNotification = false): void {
+    const now = Date.now();
+    activity.lastActivity = now;
+    if (!forceNotification && now - activity.lastActivityNotification < 1_000) return;
+    activity.lastActivityNotification = now;
+    this.refresh('terminal', activity);
+    void this.persist();
+  }
+
+  private async monitorExecutionOutput(activity: TerminalActivity, output: AsyncIterable<string>): Promise<void> {
+    try {
+      for await (const _chunk of output) {
+        if (!this.activities.has(activity.terminal)) return;
+        this.recordActivity(activity);
+      }
+    } catch {
+      // Some shell integrations cannot stream execution output.
+    }
   }
 
   private queueNativeNameRefresh(targetActivity?: TerminalActivity): void {
@@ -266,6 +295,7 @@ class TerminalActivityTracker implements vscode.Disposable {
         if (renamed) {
           activity.lastAppliedNativeName = targetName;
           activity.baseName = baseName;
+          if (activity.processId !== undefined) this.skipNextTerminalDeviceSample.add(activity.processId);
         } else {
           failedNames.push(activity.terminal.name);
         }
@@ -308,7 +338,7 @@ class TerminalActivityTracker implements vscode.Disposable {
 
   private classifyActivity(activity: TerminalActivity, now: number, thresholds: BucketThresholds): ActivityBucket {
     return classifySession(
-      { running: activity.runningExecutions > 0, lastActivity: activity.lastActivity },
+      { lastActivity: activity.lastActivity },
       now,
       thresholds,
     );
@@ -355,6 +385,27 @@ async function readProcessSamples() {
       ])
     : await executeProcess('ps', ['-axo', 'pid=,ppid=,time=']);
   return parseProcessSamples(output, windows);
+}
+
+async function readTerminalDeviceMtimes(rootProcessIds: number[]): Promise<Map<number, number>> {
+  if (process.platform === 'win32' || rootProcessIds.length === 0) return new Map();
+  const output = await executeProcess('ps', [
+    '-p',
+    rootProcessIds.join(','),
+    '-o',
+    'pid=,tty=',
+  ]);
+  const devices = parseProcessTerminalDevices(output);
+  const mtimes = new Map<number, number>();
+  await Promise.all([...devices].map(async ([processId, device]) => {
+    try {
+      const details = await stat(`/dev/${device}`);
+      mtimes.set(processId, details.mtimeMs);
+    } catch {
+      // The terminal may have closed between process listing and stat.
+    }
+  }));
+  return mtimes;
 }
 
 function executeProcess(file: string, args: string[]): Promise<string> {
