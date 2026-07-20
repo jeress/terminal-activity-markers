@@ -10,6 +10,7 @@ import {
   parseProcessSamples,
   parseProcessTerminalDevices,
   stripNativeMarker,
+  terminalToRestoreAfterRename,
 } from '../src/model';
 
 const hour = 3_600_000;
@@ -75,6 +76,12 @@ test('completion markers are limited to long commands that finish off-screen', (
   assert.equal(completionMarkerForExecution(undefined, 30_000, 10, false), 'completed');
   assert.equal(completionMarkerForExecution(0, 5_000, 10, false), undefined);
   assert.equal(completionMarkerForExecution(1, 30_000, 10, true), undefined);
+});
+
+test('rename restoration preserves a newer user terminal selection', () => {
+  assert.equal(terminalToRestoreAfterRename('old', 'new', 4, 4), 'old');
+  assert.equal(terminalToRestoreAfterRename('old', 'new', 4, 5), 'new');
+  assert.equal(terminalToRestoreAfterRename('old', undefined, 4, 5), undefined);
 });
 
 test('process listings parse elapsed CPU time', () => {

@@ -23,6 +23,15 @@ export interface NativeMarkerState {
   unseenCompletion?: CompletionMarker;
 }
 
+export function terminalToRestoreAfterRename<T>(
+  activeAtStart: T | undefined,
+  latestUserActive: T | undefined,
+  selectionVersionAtStart: number,
+  currentSelectionVersion: number,
+): T | undefined {
+  return selectionVersionAtStart === currentSelectionVersion ? activeAtStart : latestUserActive;
+}
+
 const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = {
   active: '🟢',
   recent: '🟡',

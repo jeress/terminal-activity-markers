@@ -13,6 +13,7 @@ import {
   parseProcessSamples,
   parseProcessTerminalDevices,
   stripNativeMarker,
+  terminalToRestoreAfterRename,
 } from './model';
 
 interface PersistedActivity {
@@ -37,6 +38,7 @@ const STORAGE_KEY = 'terminalActivityDashboard.activities';
 const STORAGE_VERSION_KEY = 'terminalActivityDashboard.activitiesVersion';
 const STORAGE_VERSION = 6;
 const MINIMUM_CPU_DELTA_SECONDS = 0.5;
+const NEW_TERMINAL_ACTIVATION_DELAY_MS = 250;
 class TerminalActivityTracker implements vscode.Disposable {
   private readonly activities = new Map<vscode.Terminal, TerminalActivity>();
   private readonly disposables: vscode.Disposable[] = [];
@@ -46,8 +48,10 @@ class TerminalActivityTracker implements vscode.Disposable {
   private previousCpuByProcessId = new Map<number, number>();
   private previousTerminalMtimeByProcessId = new Map<number, number>();
   private readonly rebaseliningTerminalDeviceProcessIds = new Set<number>();
+  private readonly pendingNewTerminals = new Set<vscode.Terminal>();
   private readonly migrateLegacyFocusActivity: boolean;
   private userActiveTerminal = vscode.window.activeTerminal;
+  private userActiveSelectionVersion = 0;
   private applyingNativeNames = false;
 
   constructor(private readonly context: vscode.ExtensionContext) {
@@ -58,11 +62,13 @@ class TerminalActivityTracker implements vscode.Disposable {
     const restoredTerminals = vscode.window.terminals.map((terminal) => this.trackTerminal(terminal, true));
 
     this.disposables.push(
-      vscode.window.onDidOpenTerminal((terminal) => { void this.trackTerminal(terminal, false); }),
+      vscode.window.onDidOpenTerminal((terminal) => this.deferNewTerminalTracking(terminal)),
       vscode.window.onDidCloseTerminal((terminal) => this.removeTerminal(terminal)),
       vscode.window.onDidChangeActiveTerminal((terminal) => {
-        if (this.applyingNativeNames) return;
+        const activatingNewTerminal = terminal !== undefined && this.pendingNewTerminals.has(terminal);
+        if (this.applyingNativeNames && !activatingNewTerminal) return;
         this.userActiveTerminal = terminal;
+        this.userActiveSelectionVersion += 1;
         if (!terminal) return;
         const activity = this.ensureActivity(terminal);
         void this.rebaselineTerminalDevices(activity.processId === undefined ? [] : [activity.processId]);
@@ -123,6 +129,7 @@ class TerminalActivityTracker implements vscode.Disposable {
   }
 
   refresh(syncNativeNames: boolean | 'terminal' = false, targetActivity?: TerminalActivity): void {
+    if (targetActivity && this.pendingNewTerminals.has(targetActivity.terminal)) return;
     if (syncNativeNames) {
       this.queueNativeNameRefresh(syncNativeNames === 'terminal' ? targetActivity : undefined);
     }
@@ -187,9 +194,22 @@ class TerminalActivityTracker implements vscode.Disposable {
   }
 
   private removeTerminal(terminal: vscode.Terminal): void {
+    this.pendingNewTerminals.delete(terminal);
     this.activities.delete(terminal);
     this.refresh(false);
     void this.persist();
+  }
+
+  private deferNewTerminalTracking(terminal: vscode.Terminal): void {
+    this.pendingNewTerminals.add(terminal);
+    setTimeout(() => {
+      if (!this.pendingNewTerminals.delete(terminal) || !vscode.window.terminals.includes(terminal)) return;
+      if (vscode.window.activeTerminal === terminal && this.userActiveTerminal !== terminal) {
+        this.userActiveTerminal = terminal;
+        this.userActiveSelectionVersion += 1;
+      }
+      void this.trackTerminal(terminal, false);
+    }, NEW_TERMINAL_ACTIVATION_DELAY_MS);
   }
 
   private thresholds(): BucketThresholds {
@@ -310,6 +330,7 @@ class TerminalActivityTracker implements vscode.Disposable {
         ? true
         : configuration.get<boolean>('renameExistingTerminals', true);
       const activeTerminal = vscode.window.activeTerminal;
+      const selectionVersionAtStart = this.userActiveSelectionVersion;
       const now = Date.now();
       const thresholds = this.thresholds();
       const liveIndicatorSeconds = configuration.get<number>('liveIndicatorSeconds', 15);
@@ -319,6 +340,7 @@ class TerminalActivityTracker implements vscode.Disposable {
 
       for (const activity of activities) {
         if (!this.activities.has(activity.terminal)) continue;
+        if (this.pendingNewTerminals.has(activity.terminal)) continue;
         if (activity.existingAtActivation && !renameExistingTerminals) continue;
         const bucket = this.displayBucket(this.classifyActivity(activity, now, thresholds));
         const baseName = clearOnly ? stripNativeMarker(activity.terminal.name) : activity.baseName;
@@ -347,8 +369,14 @@ class TerminalActivityTracker implements vscode.Disposable {
         }
       }
 
-      if (activeTerminal && vscode.window.terminals.includes(activeTerminal)) {
-        await this.showTerminalForRename(activeTerminal);
+      const terminalToRestore = terminalToRestoreAfterRename(
+        activeTerminal,
+        this.userActiveTerminal,
+        selectionVersionAtStart,
+        this.userActiveSelectionVersion,
+      );
+      if (terminalToRestore && vscode.window.terminals.includes(terminalToRestore)) {
+        await this.showTerminalForRename(terminalToRestore);
       }
       if (failedNames.length > 0) {
         void vscode.window.showWarningMessage(

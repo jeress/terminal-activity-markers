@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.2
+
+- Keep a newly opened terminal selected while its first native activity marker is applied.
+- Preserve a new terminal activation if it occurs during a background rename sweep.
+
 ## 1.1.1
 
 - Prevent user selection and internal terminal-renaming focus changes from triggering false live activity.
