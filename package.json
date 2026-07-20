@@ -1,8 +1,8 @@
 {
   "name": "terminal-activity-markers",
   "displayName": "Terminal Activity Monitor for VS Code",
-  "description": "Monitors terminal activity using colored dots in VS Code's native terminal list.",
-  "version": "1.0.5",
+  "description": "Monitors live, completed, and recent terminal activity in VS Code's native terminal list.",
+  "version": "1.1.0",
   "publisher": "jeress",
   "license": "MIT",
   "preview": false,
@@ -83,10 +83,29 @@
           "maximum": 3600,
           "description": "How often native terminal activity dots are refreshed."
         },
+        "terminalActivityDashboard.liveIndicatorSeconds": {
+          "type": "number",
+          "default": 15,
+          "minimum": 0,
+          "maximum": 300,
+          "description": "Show a 🟢🟢 marker for this many seconds after output, CPU, or shell-command activity is detected. Set to 0 to disable the live marker."
+        },
+        "terminalActivityDashboard.completionMarkers": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show ✅ or ❌ when a qualifying shell-integrated command finishes in a terminal that is not selected. Selecting the terminal acknowledges the marker."
+        },
+        "terminalActivityDashboard.completionMinimumSeconds": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "maximum": 3600,
+          "description": "Only show completion markers for shell commands that ran for at least this many seconds."
+        },
         "terminalActivityDashboard.nativeNameMarkers": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically prefix native terminal names with 🟢, 🟡, or ⚪ activity dots. Names update when commands run and activity thresholds are crossed. This can momentarily focus terminals because of VS Code API limitations."
+          "description": "Automatically prefix native terminal names with live, completion, and age markers. Names update when commands run and activity thresholds are crossed. This can momentarily focus terminals because of VS Code API limitations."
         },
         "terminalActivityDashboard.renameExistingTerminals": {
           "type": "boolean",

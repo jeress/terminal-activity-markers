@@ -1,4 +1,5 @@
 export type ActivityBucket = 'active' | 'recent' | 'parked' | 'stale';
+export type CompletionMarker = 'completed' | 'failed';
 
 export interface BucketThresholds {
   activeAfterHours: number;
@@ -15,6 +16,19 @@ export interface ProcessSample {
   parentProcessId: number;
   cpuSeconds: number;
 }
+
+export interface NativeMarkerState {
+  bucket: ActivityBucket;
+  lastLiveActivity?: number;
+  unseenCompletion?: CompletionMarker;
+}
+
+const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = {
+  active: '🟢',
+  recent: '🟡',
+  parked: '⚪',
+  stale: '⚪',
+};
 
 export function parseProcessSamples(output: string, cpuValueIsTicks = false): ProcessSample[] {
   const samples: ProcessSample[] = [];
@@ -84,8 +98,10 @@ function findProcessRoot(
 }
 
 const LEGACY_ACTIVITY_LABEL = String.raw`(?:\[[0-9] (?:RUN|WAIT|IDLE|PARK|STALE)\]|Active|Recent|Idle)`;
+const LEGACY_TRANSIENT_MARKER = String.raw`(?:▶|✓|!)`;
+const NATIVE_TRANSIENT_MARKER = String.raw`(?:🔵|✅|❌)`;
 const NATIVE_NAME_MARKER = new RegExp(
-  String.raw`^(?:(?:[🟢🟡⚪]\s*)(?:${LEGACY_ACTIVITY_LABEL}(?:\s+|$))?|${LEGACY_ACTIVITY_LABEL}(?:\s+|$))`,
+  String.raw`^(?:(?:${LEGACY_TRANSIENT_MARKER}\s*)?(?:[🟢🟡⚪]\s*)(?:${LEGACY_ACTIVITY_LABEL}(?:\s+|$))?|${NATIVE_TRANSIENT_MARKER}(?:\s+|$)|${LEGACY_ACTIVITY_LABEL}(?:\s+|$))`,
   'u',
 );
 
@@ -95,6 +111,34 @@ export function stripNativeMarker(value: string): string {
     stripped = stripped.replace(NATIVE_NAME_MARKER, '');
   }
   return stripped.trimStart() || 'Terminal';
+}
+
+export function formatNativeMarker(
+  state: NativeMarkerState,
+  now: number,
+  liveIndicatorSeconds: number,
+): string {
+  const ageMarker = NATIVE_BUCKET_PREFIXES[state.bucket];
+  if (state.unseenCompletion === 'failed') return '❌';
+  if (state.unseenCompletion === 'completed') return '✅';
+  if (
+    liveIndicatorSeconds > 0
+    && state.lastLiveActivity !== undefined
+    && now - state.lastLiveActivity < liveIndicatorSeconds * 1000
+  ) {
+    return '🟢🟢';
+  }
+  return ageMarker;
+}
+
+export function completionMarkerForExecution(
+  exitCode: number | undefined,
+  durationMilliseconds: number,
+  minimumSeconds: number,
+  terminalIsActive: boolean,
+): CompletionMarker | undefined {
+  if (terminalIsActive || durationMilliseconds < minimumSeconds * 1000) return undefined;
+  return exitCode !== undefined && exitCode !== 0 ? 'failed' : 'completed';
 }
 
 export function classifySession(

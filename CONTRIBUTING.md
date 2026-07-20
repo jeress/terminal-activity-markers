@@ -17,7 +17,7 @@ Package and install a local VSIX:
 
 ```sh
 npm run package
-code --install-extension terminal-activity-markers-1.0.0.vsix --force
+code --install-extension terminal-activity-markers-<version>.vsix --force
 ```
 
 Reload the VS Code window after installation.

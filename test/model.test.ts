@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   classifySession,
+  completionMarkerForExecution,
   detectActiveProcessRoots,
   formatAge,
+  formatNativeMarker,
   parseProcessSamples,
   parseProcessTerminalDevices,
   stripNativeMarker,
@@ -35,6 +37,43 @@ test('native activity markers are completely removed', () => {
   assert.equal(stripNativeMarker('[1 RUN] project'), 'project');
   assert.equal(stripNativeMarker('🟢 Active'), 'Terminal');
   assert.equal(stripNativeMarker('zsh'), 'zsh');
+  assert.equal(stripNativeMarker('▶ 🟢 zsh'), 'zsh');
+  assert.equal(stripNativeMarker('✓ 🟡 build'), 'build');
+  assert.equal(stripNativeMarker('! ⚪ tests'), 'tests');
+  assert.equal(stripNativeMarker('! important'), '! important');
+  assert.equal(stripNativeMarker('🔵 zsh'), 'zsh');
+  assert.equal(stripNativeMarker('🟢🟢 zsh'), 'zsh');
+  assert.equal(stripNativeMarker('✅ build'), 'build');
+  assert.equal(stripNativeMarker('❌ tests'), 'tests');
+});
+
+test('native markers prioritize unseen completion over live and age state', () => {
+  const now = 100_000;
+  assert.equal(formatNativeMarker({ bucket: 'active' }, now, 15), '🟢');
+  assert.equal(
+    formatNativeMarker({ bucket: 'active', lastLiveActivity: now - 5_000 }, now, 15),
+    '🟢🟢',
+  );
+  assert.equal(
+    formatNativeMarker({ bucket: 'recent', lastLiveActivity: now - 20_000 }, now, 15),
+    '🟡',
+  );
+  assert.equal(
+    formatNativeMarker({ bucket: 'active', lastLiveActivity: now, unseenCompletion: 'completed' }, now, 15),
+    '✅',
+  );
+  assert.equal(
+    formatNativeMarker({ bucket: 'active', lastLiveActivity: now, unseenCompletion: 'failed' }, now, 15),
+    '❌',
+  );
+});
+
+test('completion markers are limited to long commands that finish off-screen', () => {
+  assert.equal(completionMarkerForExecution(0, 30_000, 10, false), 'completed');
+  assert.equal(completionMarkerForExecution(2, 30_000, 10, false), 'failed');
+  assert.equal(completionMarkerForExecution(undefined, 30_000, 10, false), 'completed');
+  assert.equal(completionMarkerForExecution(0, 5_000, 10, false), undefined);
+  assert.equal(completionMarkerForExecution(1, 30_000, 10, true), undefined);
 });
 
 test('process listings parse elapsed CPU time', () => {

@@ -4,11 +4,16 @@
 
 Terminal Activity Monitor for VS Code helps people who keep many integrated terminal sessions open at once.
 
-It adds compact status dots to terminal names so the native terminal list is easier to scan:
+It adds compact status markers to terminal names so the native terminal list is easier to scan:
 
-- `🟢` — used within the active window, defaulting to one hour, or currently running a shell command.
+- `🟢🟢` — output, CPU, or shell-command activity was detected within the live window, defaulting to 15 seconds.
+- `✅` — a qualifying shell command completed while its terminal was not selected.
+- `❌` — a qualifying shell command failed while its terminal was not selected.
+- `🟢` — used within the active window, defaulting to one hour.
 - `🟡` — used within the recent window, defaulting to 24 hours.
 - `⚪` — older than the recent window.
+
+Selecting a terminal acknowledges its `✅` or `❌` marker without changing its activity age.
 
 ## Privacy
 
@@ -41,13 +46,13 @@ Those capabilities are not exposed through VS Code's stable extension API.
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.0.5.vsix --force
+code --install-extension terminal-activity-markers-1.1.0.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.5.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.1.0.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -72,6 +77,9 @@ The package command creates a `.vsix` file in the project root.
 After installation, open several integrated terminals. The extension will mark their native terminal names as activity is observed:
 
 - Create a terminal, start a process, or run a shell command and it becomes `🟢 name`.
+- While activity is being detected, it becomes `🟢🟢 name`.
+- Leave a qualifying command running, select another terminal, and it becomes `✅ name` or `❌ name` when the command finishes.
+- Select the completed terminal to acknowledge the completion marker.
 - Clicking between terminals does not change their activity state.
 - Leave it alone past the active window and it becomes `🟡 name`.
 - Leave it alone past the recent window and it becomes `⚪ name`.
@@ -93,6 +101,9 @@ To remove the dots and turn off automatic markers, run **Terminal Activity Monit
 | `terminalActivityDashboard.activeAfterHours` | `1` | Keep a terminal green for this many hours after creation or reported shell command activity. |
 | `terminalActivityDashboard.parkedAfterHours` | `24` | Turn a terminal's dot from yellow to white after this many hours without activity. |
 | `terminalActivityDashboard.refreshIntervalSeconds` | `5` | Refresh cadence for native terminal activity dots. |
+| `terminalActivityDashboard.liveIndicatorSeconds` | `15` | Keep `🟢🟢` visible for this many seconds after detected activity; `0` disables it. |
+| `terminalActivityDashboard.completionMarkers` | `true` | Mark unseen shell-command completion or failure until the terminal is selected. |
+| `terminalActivityDashboard.completionMinimumSeconds` | `10` | Ignore completion markers for commands shorter than this many seconds. |
 | `terminalActivityDashboard.nativeNameMarkers` | `true` | Prefix native terminal names with `🟢`, `🟡`, or `⚪`. |
 | `terminalActivityDashboard.renameExistingTerminals` | `true` | Apply native name markers to terminals that were open before the extension activated. |
 
@@ -106,9 +117,11 @@ The extension listens to VS Code terminal APIs for:
 
 For shell-integrated commands, it observes output timing and immediately discards the content. On macOS and Linux, it also checks terminal-device modification times; on every platform it samples lightweight CPU counters as a fallback. This lets it recognize recent work inside long-running tools such as Codex without keeping an idle process green forever. No command lines or output content are collected.
 
-Recent shell output or substantial CPU activity keeps a terminal green even if it has not been focused recently. Merely keeping a process open does not.
+Recent shell output or substantial CPU activity keeps a terminal green even if it has not been focused recently. The `🟢🟢` marker identifies the much shorter live-activity window. Merely keeping a process open does not.
 
-VS Code does not expose arbitrary terminal output through a stable extension API, so background output that occurs outside shell-execution tracking may not update activity by itself.
+With shell integration, VS Code also reports when a command ends and may report its exit code. Commands that meet the configured minimum duration receive `✅` or `❌` when they finish off-screen. The marker is an unread completion signal, not additional stored history.
+
+VS Code does not expose arbitrary terminal output through a stable extension API, so background output that occurs outside shell-execution tracking may not update activity by itself. Long-lived interactive programs such as Codex appear to VS Code as one shell command, so the extension can indicate their live and quiet periods but cannot reliably identify when an individual task inside them is complete.
 
 ## Native Terminal Explorer Limitation
 

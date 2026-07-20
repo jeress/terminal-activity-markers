@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.0
+
+- Show `🟢🟢` while current output, CPU, or shell-command activity is being detected.
+- Mark qualifying off-screen shell command completions with `✅` or `❌` until the terminal is selected.
+- Add settings for the live-indicator window, completion markers, and minimum command duration.
+- Return to green, yellow, or white age dots after transient status markers clear.
+
 ## 1.0.5
 
 - Remove unused local storage of the last shell command.
