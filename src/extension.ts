@@ -14,14 +14,12 @@ import {
 interface PersistedActivity {
   processId: number;
   lastActivity: number;
-  lastCommand?: string;
 }
 
 interface TerminalActivity {
   terminal: vscode.Terminal;
   baseName: string;
   lastActivity: number;
-  lastCommand?: string;
   lastActivityNotification: number;
   processId?: number;
   existingAtActivation: boolean;
@@ -70,7 +68,6 @@ class TerminalActivityTracker implements vscode.Disposable {
       }),
       vscode.window.onDidStartTerminalShellExecution((event) => {
         const activity = this.ensureActivity(event.terminal);
-        activity.lastCommand = event.execution.commandLine.value || activity.lastCommand;
         this.recordActivity(activity, true);
         try {
           const output = event.execution.read();
@@ -137,7 +134,6 @@ class TerminalActivityTracker implements vscode.Disposable {
       const persisted = this.persistedByProcessId.get(processId);
       if (persisted) {
         activity.lastActivity = this.restoredLastActivity(persisted.lastActivity, activity);
-        activity.lastCommand = persisted.lastCommand;
       }
       this.refresh('terminal', activity);
       void this.persist();
@@ -354,7 +350,6 @@ class TerminalActivityTracker implements vscode.Disposable {
       .map((activity) => ({
         processId: activity.processId,
         lastActivity: activity.lastActivity,
-        lastCommand: activity.lastCommand,
       }));
     await this.context.globalState.update(STORAGE_KEY, entries);
   }

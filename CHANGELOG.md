@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.5
+
+- Remove unused local storage of the last shell command.
+- Document the extension's local-only operation and absence of telemetry or network requests.
+
 ## 1.0.4
 
 - Track shell-execution output timing while discarding output content.

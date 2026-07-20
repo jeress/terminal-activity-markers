@@ -11,6 +11,12 @@ It adds compact status dots to terminal names so the native terminal list is eas
 - `🟡` — used within the recent window, defaulting to 24 hours.
 - `⚪` — older than the recent window.
 
+## Privacy
+
+Terminal Activity Monitor has no telemetry, analytics, accounts, or network requests. All processing stays on the machine where the VS Code extension host runs.
+
+The extension stores only each terminal's process ID and last-activity timestamp in VS Code's local extension state. It checks local process counters and terminal-device timestamps to detect activity. When VS Code exposes shell-output events, the extension uses only their timing and immediately discards the content. Command lines and terminal output are never logged, stored, or transmitted.
+
 ## Why This Exists
 
 VS Code is excellent at keeping terminal sessions alive, but the built-in terminal list does not provide automatic sorting, age-based grouping, or row-level color/status customization for existing terminals.
@@ -36,13 +42,13 @@ Those capabilities are not exposed through VS Code's stable extension API.
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.0.4.vsix --force
+code --install-extension terminal-activity-markers-1.0.5.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.4.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.0.5.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:

@@ -2,7 +2,7 @@
   "name": "terminal-activity-markers",
   "displayName": "Terminal Activity Monitor for VS Code",
   "description": "Monitors terminal activity using colored dots in VS Code's native terminal list.",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "publisher": "jeress",
   "license": "MIT",
   "preview": false,
