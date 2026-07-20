@@ -1,6 +1,5 @@
 # Terminal Activity Monitor for VS Code
 
-[![CI](https://github.com/jeress/terminal-activity-markers/actions/workflows/ci.yml/badge.svg)](https://github.com/jeress/terminal-activity-markers/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/jeress/terminal-activity-markers)](https://github.com/jeress/terminal-activity-markers/releases/latest)
 
 Terminal Activity Monitor for VS Code helps people who keep many integrated terminal sessions open at once.
