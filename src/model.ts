@@ -56,6 +56,18 @@ export function parseProcessTerminalDevices(output: string): Map<number, string>
   return devices;
 }
 
+export function detectChangedTerminalDevices(
+  previousMtimes: ReadonlyMap<number, number>,
+  currentMtimes: ReadonlyMap<number, number>,
+): Set<number> {
+  const activeProcessIds = new Set<number>();
+  for (const [processId, mtimeMs] of currentMtimes) {
+    const previousMtimeMs = previousMtimes.get(processId);
+    if (previousMtimeMs !== undefined && mtimeMs > previousMtimeMs) activeProcessIds.add(processId);
+  }
+  return activeProcessIds;
+}
+
 export function detectActiveProcessRoots(
   rootProcessIds: Iterable<number>,
   previousCpuByProcessId: ReadonlyMap<number, number>,

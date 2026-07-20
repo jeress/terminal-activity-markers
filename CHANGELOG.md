@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- Prevent user selection and internal terminal-renaming focus changes from triggering false live activity.
+
 ## 1.1.0
 
 - Show `🟢🟢` while current output, CPU, or shell-command activity is being detected.

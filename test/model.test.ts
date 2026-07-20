@@ -4,6 +4,7 @@ import {
   classifySession,
   completionMarkerForExecution,
   detectActiveProcessRoots,
+  detectChangedTerminalDevices,
   formatAge,
   formatNativeMarker,
   parseProcessSamples,
@@ -91,6 +92,13 @@ test('terminal device listings accept safe tty paths', () => {
     [...parseProcessTerminalDevices('101 ttys005\n202 pts/3\n303 ??\n404 ../../tmp/bad\n')],
     [[101, 'ttys005'], [202, 'pts/3']],
   );
+});
+
+test('post-focus baselines ignore focus changes but retain later activity', () => {
+  const previous = new Map([[10, 200], [20, 100]]);
+  const current = new Map([[10, 200], [20, 200]]);
+  assert.deepEqual([...detectChangedTerminalDevices(previous, current)], [20]);
+  assert.deepEqual([...detectChangedTerminalDevices(current, new Map([[10, 300], [20, 200]]))], [10]);
 });
 
 test('only CPU-active descendant processes activate a terminal root', () => {

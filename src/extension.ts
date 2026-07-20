@@ -8,6 +8,7 @@ import {
   CompletionMarker,
   completionMarkerForExecution,
   detectActiveProcessRoots,
+  detectChangedTerminalDevices,
   formatNativeMarker,
   parseProcessSamples,
   parseProcessTerminalDevices,
@@ -44,7 +45,7 @@ class TerminalActivityTracker implements vscode.Disposable {
   private nativeNameRefresh = Promise.resolve();
   private previousCpuByProcessId = new Map<number, number>();
   private previousTerminalMtimeByProcessId = new Map<number, number>();
-  private readonly skipNextTerminalDeviceSample = new Set<number>();
+  private readonly rebaseliningTerminalDeviceProcessIds = new Set<number>();
   private readonly migrateLegacyFocusActivity: boolean;
   private userActiveTerminal = vscode.window.activeTerminal;
   private applyingNativeNames = false;
@@ -64,6 +65,7 @@ class TerminalActivityTracker implements vscode.Disposable {
         this.userActiveTerminal = terminal;
         if (!terminal) return;
         const activity = this.ensureActivity(terminal);
+        void this.rebaselineTerminalDevices(activity.processId === undefined ? [] : [activity.processId]);
         if (activity.unseenCompletion) {
           activity.unseenCompletion = undefined;
           this.refresh('terminal', activity);
@@ -223,6 +225,7 @@ class TerminalActivityTracker implements vscode.Disposable {
   }
 
   private async refreshProcessActivity(): Promise<void> {
+    const internalFocusInProgress = this.applyingNativeNames;
     try {
       const samples = await readProcessSamples();
       const rootProcessIds = [...this.activities.values()]
@@ -235,13 +238,19 @@ class TerminalActivityTracker implements vscode.Disposable {
         MINIMUM_CPU_DELTA_SECONDS,
       );
       const terminalMtimes = await readTerminalDeviceMtimes(rootProcessIds);
-      for (const [processId, mtimeMs] of terminalMtimes) {
-        const previousMtimeMs = this.previousTerminalMtimeByProcessId.get(processId);
-        if (this.skipNextTerminalDeviceSample.delete(processId)) continue;
-        if (previousMtimeMs !== undefined && mtimeMs > previousMtimeMs) activeRoots.add(processId);
-      }
+      const changedTerminalDevices = detectChangedTerminalDevices(
+        this.previousTerminalMtimeByProcessId,
+        terminalMtimes,
+      );
+      for (const processId of changedTerminalDevices) activeRoots.add(processId);
+      const suppressInternalFocusActivity = internalFocusInProgress || this.applyingNativeNames;
       for (const activity of this.activities.values()) {
-        if (activity.processId !== undefined && activeRoots.has(activity.processId)) {
+        if (
+          activity.processId !== undefined
+          && activeRoots.has(activity.processId)
+          && !suppressInternalFocusActivity
+          && !this.rebaseliningTerminalDeviceProcessIds.has(activity.processId)
+        ) {
           this.recordActivity(activity, { markLive: true });
         }
       }
@@ -333,7 +342,6 @@ class TerminalActivityTracker implements vscode.Disposable {
         if (renamed) {
           activity.lastAppliedNativeName = targetName;
           activity.baseName = baseName;
-          if (activity.processId !== undefined) this.skipNextTerminalDeviceSample.add(activity.processId);
         } else {
           failedNames.push(activity.terminal.name);
         }
@@ -349,6 +357,11 @@ class TerminalActivityTracker implements vscode.Disposable {
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
     } finally {
+      await this.rebaselineTerminalDevices(
+        [...this.activities.values()]
+          .map((activity) => activity.processId)
+          .filter((processId): processId is number => processId !== undefined),
+      );
       this.applyingNativeNames = false;
     }
   }
@@ -358,6 +371,21 @@ class TerminalActivityTracker implements vscode.Disposable {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       if (vscode.window.activeTerminal === terminal) return;
       await new Promise<void>((resolve) => setTimeout(resolve, 25));
+    }
+  }
+
+  private async rebaselineTerminalDevices(processIds: number[]): Promise<void> {
+    if (processIds.length === 0 || process.platform === 'win32') return;
+    for (const processId of processIds) this.rebaseliningTerminalDeviceProcessIds.add(processId);
+    try {
+      const mtimes = await readTerminalDeviceMtimes(processIds);
+      for (const [processId, mtimeMs] of mtimes) {
+        this.previousTerminalMtimeByProcessId.set(processId, mtimeMs);
+      }
+    } catch {
+      // A terminal may close while its post-focus device timestamp is sampled.
+    } finally {
+      for (const processId of processIds) this.rebaseliningTerminalDeviceProcessIds.delete(processId);
     }
   }
 
