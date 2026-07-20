@@ -10,6 +10,7 @@ import {
   parseProcessSamples,
   parseProcessTerminalDevices,
   stripNativeMarker,
+  terminalNeedsReveal,
   terminalToRestoreAfterRename,
 } from '../src/model';
 
@@ -82,6 +83,12 @@ test('rename restoration preserves a newer user terminal selection', () => {
   assert.equal(terminalToRestoreAfterRename('old', 'new', 4, 4), 'old');
   assert.equal(terminalToRestoreAfterRename('old', 'new', 4, 5), 'new');
   assert.equal(terminalToRestoreAfterRename('old', undefined, 4, 5), undefined);
+});
+
+test('terminal reveal is skipped when the intended terminal is already active', () => {
+  assert.equal(terminalNeedsReveal('current', 'current'), false);
+  assert.equal(terminalNeedsReveal('current', 'other'), true);
+  assert.equal(terminalNeedsReveal('current', undefined), false);
 });
 
 test('process listings parse elapsed CPU time', () => {

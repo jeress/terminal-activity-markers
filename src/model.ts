@@ -32,6 +32,10 @@ export function terminalToRestoreAfterRename<T>(
   return selectionVersionAtStart === currentSelectionVersion ? activeAtStart : latestUserActive;
 }
 
+export function terminalNeedsReveal<T>(current: T | undefined, target: T | undefined): boolean {
+  return target !== undefined && current !== target;
+}
+
 const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = {
   active: '🟢',
   recent: '🟡',

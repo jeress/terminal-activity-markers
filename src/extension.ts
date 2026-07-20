@@ -13,6 +13,7 @@ import {
   parseProcessSamples,
   parseProcessTerminalDevices,
   stripNativeMarker,
+  terminalNeedsReveal,
   terminalToRestoreAfterRename,
 } from './model';
 
@@ -375,7 +376,11 @@ class TerminalActivityTracker implements vscode.Disposable {
         selectionVersionAtStart,
         this.userActiveSelectionVersion,
       );
-      if (terminalToRestore && vscode.window.terminals.includes(terminalToRestore)) {
+      if (
+        terminalToRestore
+        && vscode.window.terminals.includes(terminalToRestore)
+        && terminalNeedsReveal(vscode.window.activeTerminal, terminalToRestore)
+      ) {
         await this.showTerminalForRename(terminalToRestore);
       }
       if (failedNames.length > 0) {
@@ -395,6 +400,7 @@ class TerminalActivityTracker implements vscode.Disposable {
   }
 
   private async showTerminalForRename(terminal: vscode.Terminal): Promise<void> {
+    if (!terminalNeedsReveal(vscode.window.activeTerminal, terminal)) return;
     terminal.show(false);
     for (let attempt = 0; attempt < 20; attempt += 1) {
       if (vscode.window.activeTerminal === terminal) return;

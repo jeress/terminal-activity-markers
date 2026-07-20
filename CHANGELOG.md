@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.3
+
+- Avoid redundant terminal reveal calls that could repaint or briefly refresh the active terminal.
+
 ## 1.1.2
 
 - Keep a newly opened terminal selected while its first native activity marker is applied.
