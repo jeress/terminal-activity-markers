@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   classifySession,
   completionMarkerForExecution,
+  completionMarkerWasDisplayed,
   detectActiveProcessRoots,
   detectChangedTerminalDevices,
   formatAge,
@@ -77,6 +78,14 @@ test('completion markers are limited to long commands that finish off-screen', (
   assert.equal(completionMarkerForExecution(undefined, 30_000, 10, false), 'completed');
   assert.equal(completionMarkerForExecution(0, 5_000, 10, false), undefined);
   assert.equal(completionMarkerForExecution(1, 30_000, 10, true), undefined);
+});
+
+test('completion is acknowledged only after its marker was displayed', () => {
+  assert.equal(completionMarkerWasDisplayed('🟢 build', 'completed'), false);
+  assert.equal(completionMarkerWasDisplayed(undefined, 'completed'), false);
+  assert.equal(completionMarkerWasDisplayed('✅ build', 'completed'), true);
+  assert.equal(completionMarkerWasDisplayed('❌ tests', 'failed'), true);
+  assert.equal(completionMarkerWasDisplayed('✅ build', 'failed'), false);
 });
 
 test('rename restoration preserves a newer user terminal selection', () => {

@@ -13,7 +13,7 @@ It adds compact status markers to terminal names so the native terminal list is 
 - `🟡` — used within the recent window, defaulting to 24 hours.
 - `⚪` — older than the recent window.
 
-Selecting a terminal acknowledges its `✅` or `❌` marker without changing its activity age.
+The first visit to a completed terminal shows its `✅` or `❌` marker. Returning to it later acknowledges the marker without changing its activity age; starting another command also clears it.
 
 ## Privacy
 
@@ -46,13 +46,13 @@ Those capabilities are not exposed through VS Code's stable extension API.
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.1.3.vsix --force
+code --install-extension terminal-activity-markers-1.1.4.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.1.3.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.1.4.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -78,8 +78,8 @@ After installation, open several integrated terminals. The extension will mark t
 
 - Create a terminal, start a process, or run a shell command and it becomes `🟢 name`.
 - While activity is being detected, it becomes `🟢🟢 name`.
-- Leave a qualifying command running, select another terminal, and it becomes `✅ name` or `❌ name` when the command finishes.
-- Select the completed terminal to acknowledge the completion marker.
+- Leave a qualifying command running and select another terminal. When you next visit the completed terminal, it shows `✅ name` or `❌ name`.
+- Move away and return to the completed terminal to acknowledge the completion marker, or start another command there.
 - Clicking between terminals does not change their activity state.
 - Leave it alone past the active window and it becomes `🟡 name`.
 - Leave it alone past the recent window and it becomes `⚪ name`.
@@ -92,6 +92,8 @@ Terminal Activity Monitor: Refresh Native Terminal Names
 
 Use that command sparingly. VS Code only exposes a command to rename the active terminal, so a full refresh has to briefly switch through terminals to rename them.
 
+Automatic updates never switch terminals. They update the selected terminal in place, while background terminals retain their last displayed marker until selected. This avoids terminal-panel flicker; use the manual full refresh only when an immediate snapshot of every background terminal is more important than the temporary switching.
+
 To remove the dots and turn off automatic markers, run **Terminal Activity Monitor: Disable and Clear Native Markers**. Re-enable them with the `nativeNameMarkers` setting.
 
 ## Settings
@@ -102,7 +104,7 @@ To remove the dots and turn off automatic markers, run **Terminal Activity Monit
 | `terminalActivityDashboard.parkedAfterHours` | `24` | Turn a terminal's dot from yellow to white after this many hours without activity. |
 | `terminalActivityDashboard.refreshIntervalSeconds` | `5` | Refresh cadence for native terminal activity dots. |
 | `terminalActivityDashboard.liveIndicatorSeconds` | `15` | Keep `🟢🟢` visible for this many seconds after detected activity; `0` disables it. |
-| `terminalActivityDashboard.completionMarkers` | `true` | Mark unseen shell-command completion or failure until the terminal is selected. |
+| `terminalActivityDashboard.completionMarkers` | `true` | Show unseen shell-command completion or failure on the first visit, then acknowledge it on a later return. |
 | `terminalActivityDashboard.completionMinimumSeconds` | `10` | Ignore completion markers for commands shorter than this many seconds. |
 | `terminalActivityDashboard.nativeNameMarkers` | `true` | Prefix native terminal names with `🟢`, `🟡`, or `⚪`. |
 | `terminalActivityDashboard.renameExistingTerminals` | `true` | Apply native name markers to terminals that were open before the extension activated. |
@@ -119,7 +121,7 @@ For shell-integrated commands, it observes output timing and immediately discard
 
 Recent shell output or substantial CPU activity keeps a terminal green even if it has not been focused recently. The `🟢🟢` marker identifies the much shorter live-activity window. Merely keeping a process open does not.
 
-With shell integration, VS Code also reports when a command ends and may report its exit code. Commands that meet the configured minimum duration receive `✅` or `❌` when they finish off-screen. The marker is an unread completion signal, not additional stored history.
+With shell integration, VS Code also reports when a command ends and may report its exit code. Commands that meet the configured minimum duration receive `✅` or `❌` on the first visit after they finish off-screen. The marker is an unread completion signal, not additional stored history.
 
 VS Code does not expose arbitrary terminal output through a stable extension API, so background output that occurs outside shell-execution tracking may not update activity by itself. Long-lived interactive programs such as Codex appear to VS Code as one shell command, so the extension can indicate their live and quiet periods but cannot reliably identify when an individual task inside them is complete.
 
@@ -134,7 +136,7 @@ VS Code does not currently provide a supported way for extensions to:
 - reorder existing native Terminal Explorer rows;
 - rename an arbitrary terminal without making it active.
 
-Because terminal renaming targets the active terminal, a refresh briefly cycles through terminals whose dots need to change, then restores the previously active terminal. The extension verifies each rename and retries when VS Code focus changes lag behind.
+Because terminal renaming targets the active terminal, automatic updates rename only the already-selected terminal and never cycle through background terminals. The explicit full-refresh and clear-marker commands can still briefly cycle through terminals, then restore the previously active terminal.
 
 ## Distribution
 

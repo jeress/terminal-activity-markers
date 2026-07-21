@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.4
+
+- Eliminate automatic terminal switching and the resulting terminal-panel flicker; background names now update when selected or during an explicit full refresh.
+- Preserve off-screen completion state until its `✅` or `❌` marker has actually been displayed.
+- Acknowledge a displayed completion on a later return or when the next command starts.
+
 ## 1.1.3
 
 - Avoid redundant terminal reveal calls that could repaint or briefly refresh the active terminal.

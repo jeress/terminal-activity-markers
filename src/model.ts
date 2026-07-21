@@ -166,6 +166,14 @@ export function completionMarkerForExecution(
   return exitCode !== undefined && exitCode !== 0 ? 'failed' : 'completed';
 }
 
+export function completionMarkerWasDisplayed(
+  lastAppliedNativeName: string | undefined,
+  unseenCompletion: CompletionMarker | undefined,
+): boolean {
+  if (!lastAppliedNativeName || !unseenCompletion) return false;
+  return lastAppliedNativeName.startsWith(unseenCompletion === 'failed' ? '❌' : '✅');
+}
+
 export function classifySession(
   session: SessionActivity,
   now: number,

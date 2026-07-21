@@ -33,8 +33,9 @@ Public releases use semantic versions such as `1.0.0`, a matching `v1.0.0` Git t
    - no Terminal Activity view appears in Explorer;
    - clicking between terminals does not change their dots;
    - a new shell command shows `🟢🟢` while untouched migrated terminals begin white;
-   - a command longer than the completion minimum shows `✅` or `❌` if it finishes off-screen;
-   - selecting a completed terminal clears `✅` or `❌` without refreshing its age.
+   - automatic activity and completion updates never switch away from the selected terminal;
+   - a command longer than the completion minimum shows `✅` or `❌` on the first visit after it finishes off-screen;
+   - leaving and returning to a completed terminal clears its displayed `✅` or `❌` without refreshing its age.
 
 8. Commit and tag the release:
 

@@ -2,7 +2,7 @@
   "name": "terminal-activity-markers",
   "displayName": "Terminal Activity Monitor for VS Code",
   "description": "Monitors live, completed, and recent terminal activity in VS Code's native terminal list.",
-  "version": "1.1.3",
+  "version": "1.1.4",
   "publisher": "jeress",
   "license": "MIT",
   "preview": false,
@@ -93,7 +93,7 @@
         "terminalActivityDashboard.completionMarkers": {
           "type": "boolean",
           "default": true,
-          "description": "Show ✅ or ❌ when a qualifying shell-integrated command finishes in a terminal that is not selected. Selecting the terminal acknowledges the marker."
+          "description": "Show ✅ or ❌ on the first visit after a qualifying shell-integrated command finishes off-screen. Returning later or starting another command acknowledges the marker."
         },
         "terminalActivityDashboard.completionMinimumSeconds": {
           "type": "number",
@@ -105,7 +105,7 @@
         "terminalActivityDashboard.nativeNameMarkers": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically prefix native terminal names with live, completion, and age markers. Names update when commands run and activity thresholds are crossed. This can momentarily focus terminals because of VS Code API limitations."
+          "description": "Automatically prefix native terminal names with live, completion, and age markers. Automatic updates never switch terminals; background names update when selected or when a manual full refresh is run."
         },
         "terminalActivityDashboard.renameExistingTerminals": {
           "type": "boolean",

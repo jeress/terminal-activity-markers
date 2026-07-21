@@ -7,6 +7,7 @@ import {
   classifySession,
   CompletionMarker,
   completionMarkerForExecution,
+  completionMarkerWasDisplayed,
   detectActiveProcessRoots,
   detectChangedTerminalDevices,
   formatNativeMarker,
@@ -73,10 +74,10 @@ class TerminalActivityTracker implements vscode.Disposable {
         if (!terminal) return;
         const activity = this.ensureActivity(terminal);
         void this.rebaselineTerminalDevices(activity.processId === undefined ? [] : [activity.processId]);
-        if (activity.unseenCompletion) {
+        if (completionMarkerWasDisplayed(activity.lastAppliedNativeName, activity.unseenCompletion)) {
           activity.unseenCompletion = undefined;
-          this.refresh('terminal', activity);
         }
+        this.refresh('terminal', activity);
       }),
       vscode.window.onDidChangeTerminalShellIntegration((event) => {
         const activity = this.ensureActivity(event.terminal);
@@ -132,13 +133,17 @@ class TerminalActivityTracker implements vscode.Disposable {
   refresh(syncNativeNames: boolean | 'terminal' = false, targetActivity?: TerminalActivity): void {
     if (targetActivity && this.pendingNewTerminals.has(targetActivity.terminal)) return;
     if (syncNativeNames) {
-      this.queueNativeNameRefresh(syncNativeNames === 'terminal' ? targetActivity : undefined);
+      const activity = targetActivity ?? this.activeActivity();
+      if (activity) this.queueNativeNameRefresh(activity);
     }
   }
 
   async refreshNativeNames(): Promise<void> {
     this.nativeNameRefresh = this.nativeNameRefresh
-      .then(() => this.applyNativeNameMarkers({ clearOnly: false }), () => this.applyNativeNameMarkers({ clearOnly: false }));
+      .then(
+        () => this.applyNativeNameMarkers({ clearOnly: false, allowTerminalSwitching: true }),
+        () => this.applyNativeNameMarkers({ clearOnly: false, allowTerminalSwitching: true }),
+      );
     await this.nativeNameRefresh;
   }
 
@@ -152,7 +157,10 @@ class TerminalActivityTracker implements vscode.Disposable {
         : vscode.ConfigurationTarget.Global;
     await configuration.update('nativeNameMarkers', false, target);
     this.nativeNameRefresh = this.nativeNameRefresh
-      .then(() => this.applyNativeNameMarkers({ clearOnly: true }), () => this.applyNativeNameMarkers({ clearOnly: true }));
+      .then(
+        () => this.applyNativeNameMarkers({ clearOnly: true, allowTerminalSwitching: true }),
+        () => this.applyNativeNameMarkers({ clearOnly: true, allowTerminalSwitching: true }),
+      );
     await this.nativeNameRefresh;
   }
 
@@ -312,16 +320,21 @@ class TerminalActivityTracker implements vscode.Disposable {
       .getConfiguration('terminalActivityDashboard')
       .get<boolean>('nativeNameMarkers', true);
     if (!enabled) return;
+    if (!targetActivity || vscode.window.activeTerminal !== targetActivity.terminal) return;
 
     this.nativeNameRefresh = this.nativeNameRefresh
       .then(
-        () => this.applyNativeNameMarkers({ clearOnly: false, targetActivity }),
-        () => this.applyNativeNameMarkers({ clearOnly: false, targetActivity }),
+        () => this.applyNativeNameMarkers({ clearOnly: false, targetActivity, allowTerminalSwitching: false }),
+        () => this.applyNativeNameMarkers({ clearOnly: false, targetActivity, allowTerminalSwitching: false }),
       );
   }
 
-  private async applyNativeNameMarkers(options: { clearOnly: boolean; targetActivity?: TerminalActivity }): Promise<void> {
-    const { clearOnly, targetActivity } = options;
+  private async applyNativeNameMarkers(options: {
+    clearOnly: boolean;
+    targetActivity?: TerminalActivity;
+    allowTerminalSwitching: boolean;
+  }): Promise<void> {
+    const { clearOnly, targetActivity, allowTerminalSwitching } = options;
     const configuration = vscode.workspace.getConfiguration('terminalActivityDashboard');
     if (!clearOnly && !configuration.get<boolean>('nativeNameMarkers', true)) return;
 
@@ -343,6 +356,7 @@ class TerminalActivityTracker implements vscode.Disposable {
         if (!this.activities.has(activity.terminal)) continue;
         if (this.pendingNewTerminals.has(activity.terminal)) continue;
         if (activity.existingAtActivation && !renameExistingTerminals) continue;
+        if (!allowTerminalSwitching && vscode.window.activeTerminal !== activity.terminal) continue;
         const bucket = this.displayBucket(this.classifyActivity(activity, now, thresholds));
         const baseName = clearOnly ? stripNativeMarker(activity.terminal.name) : activity.baseName;
         const marker = formatNativeMarker(
@@ -361,11 +375,11 @@ class TerminalActivityTracker implements vscode.Disposable {
           continue;
         }
 
-        const renamed = await this.renameTerminal(activity.terminal, targetName);
+        const renamed = await this.renameTerminal(activity.terminal, targetName, allowTerminalSwitching);
         if (renamed) {
           activity.lastAppliedNativeName = targetName;
           activity.baseName = baseName;
-        } else {
+        } else if (allowTerminalSwitching) {
           failedNames.push(activity.terminal.name);
         }
       }
@@ -423,9 +437,14 @@ class TerminalActivityTracker implements vscode.Disposable {
     }
   }
 
-  private async renameTerminal(terminal: vscode.Terminal, targetName: string): Promise<boolean> {
+  private async renameTerminal(
+    terminal: vscode.Terminal,
+    targetName: string,
+    allowTerminalSwitching: boolean,
+  ): Promise<boolean> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await this.showTerminalForRename(terminal);
+      if (!allowTerminalSwitching && vscode.window.activeTerminal !== terminal) return false;
+      if (allowTerminalSwitching) await this.showTerminalForRename(terminal);
       if (vscode.window.activeTerminal !== terminal) continue;
       await vscode.commands.executeCommand('workbench.action.terminal.renameWithArg', { name: targetName });
       for (let wait = 0; wait < 20; wait += 1) {
@@ -446,6 +465,11 @@ class TerminalActivityTracker implements vscode.Disposable {
 
   private displayBucket(bucket: ActivityBucket): ActivityBucket {
     return bucket === 'stale' ? 'parked' : bucket;
+  }
+
+  private activeActivity(): TerminalActivity | undefined {
+    const terminal = vscode.window.activeTerminal;
+    return terminal ? this.activities.get(terminal) : undefined;
   }
 
   private async persist(): Promise<void> {
