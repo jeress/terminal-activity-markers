@@ -2,17 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   classifySession,
-  completionMarkerForExecution,
-  completionMarkerWasDisplayed,
   detectActiveProcessRoots,
-  detectChangedTerminalDevices,
   formatAge,
-  formatNativeMarker,
   parseProcessSamples,
   parseProcessTerminalDevices,
   stripNativeMarker,
-  terminalNeedsReveal,
-  terminalToRestoreAfterRename,
 } from '../src/model';
 
 const hour = 3_600_000;
@@ -41,63 +35,6 @@ test('native activity markers are completely removed', () => {
   assert.equal(stripNativeMarker('[1 RUN] project'), 'project');
   assert.equal(stripNativeMarker('🟢 Active'), 'Terminal');
   assert.equal(stripNativeMarker('zsh'), 'zsh');
-  assert.equal(stripNativeMarker('▶ 🟢 zsh'), 'zsh');
-  assert.equal(stripNativeMarker('✓ 🟡 build'), 'build');
-  assert.equal(stripNativeMarker('! ⚪ tests'), 'tests');
-  assert.equal(stripNativeMarker('! important'), '! important');
-  assert.equal(stripNativeMarker('🔵 zsh'), 'zsh');
-  assert.equal(stripNativeMarker('🟢🟢 zsh'), 'zsh');
-  assert.equal(stripNativeMarker('✅ build'), 'build');
-  assert.equal(stripNativeMarker('❌ tests'), 'tests');
-});
-
-test('native markers prioritize unseen completion over live and age state', () => {
-  const now = 100_000;
-  assert.equal(formatNativeMarker({ bucket: 'active' }, now, 15), '🟢');
-  assert.equal(
-    formatNativeMarker({ bucket: 'active', lastLiveActivity: now - 5_000 }, now, 15),
-    '🟢🟢',
-  );
-  assert.equal(
-    formatNativeMarker({ bucket: 'recent', lastLiveActivity: now - 20_000 }, now, 15),
-    '🟡',
-  );
-  assert.equal(
-    formatNativeMarker({ bucket: 'active', lastLiveActivity: now, unseenCompletion: 'completed' }, now, 15),
-    '✅',
-  );
-  assert.equal(
-    formatNativeMarker({ bucket: 'active', lastLiveActivity: now, unseenCompletion: 'failed' }, now, 15),
-    '❌',
-  );
-});
-
-test('completion markers are limited to long commands that finish off-screen', () => {
-  assert.equal(completionMarkerForExecution(0, 30_000, 10, false), 'completed');
-  assert.equal(completionMarkerForExecution(2, 30_000, 10, false), 'failed');
-  assert.equal(completionMarkerForExecution(undefined, 30_000, 10, false), 'completed');
-  assert.equal(completionMarkerForExecution(0, 5_000, 10, false), undefined);
-  assert.equal(completionMarkerForExecution(1, 30_000, 10, true), undefined);
-});
-
-test('completion is acknowledged only after its marker was displayed', () => {
-  assert.equal(completionMarkerWasDisplayed('🟢 build', 'completed'), false);
-  assert.equal(completionMarkerWasDisplayed(undefined, 'completed'), false);
-  assert.equal(completionMarkerWasDisplayed('✅ build', 'completed'), true);
-  assert.equal(completionMarkerWasDisplayed('❌ tests', 'failed'), true);
-  assert.equal(completionMarkerWasDisplayed('✅ build', 'failed'), false);
-});
-
-test('rename restoration preserves a newer user terminal selection', () => {
-  assert.equal(terminalToRestoreAfterRename('old', 'new', 4, 4), 'old');
-  assert.equal(terminalToRestoreAfterRename('old', 'new', 4, 5), 'new');
-  assert.equal(terminalToRestoreAfterRename('old', undefined, 4, 5), undefined);
-});
-
-test('terminal reveal is skipped when the intended terminal is already active', () => {
-  assert.equal(terminalNeedsReveal('current', 'current'), false);
-  assert.equal(terminalNeedsReveal('current', 'other'), true);
-  assert.equal(terminalNeedsReveal('current', undefined), false);
 });
 
 test('process listings parse elapsed CPU time', () => {
@@ -115,13 +52,6 @@ test('terminal device listings accept safe tty paths', () => {
     [...parseProcessTerminalDevices('101 ttys005\n202 pts/3\n303 ??\n404 ../../tmp/bad\n')],
     [[101, 'ttys005'], [202, 'pts/3']],
   );
-});
-
-test('post-focus baselines ignore focus changes but retain later activity', () => {
-  const previous = new Map([[10, 200], [20, 100]]);
-  const current = new Map([[10, 200], [20, 200]]);
-  assert.deepEqual([...detectChangedTerminalDevices(previous, current)], [20]);
-  assert.deepEqual([...detectChangedTerminalDevices(current, new Map([[10, 300], [20, 200]]))], [10]);
 });
 
 test('only CPU-active descendant processes activate a terminal root', () => {

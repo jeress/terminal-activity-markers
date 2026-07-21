@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.5
+
+- Restore the stable v1.0.5 activity model with one green, yellow, or white age dot.
+- Remove transient double-green and completion markers that caused stale states and additional terminal renames.
+- Keep terminal selection independent from recorded activity.
+
 ## 1.1.4
 
 - Eliminate automatic terminal switching and the resulting terminal-panel flicker; background names now update when selected or during an explicit full refresh.

@@ -32,10 +32,9 @@ Public releases use semantic versions such as `1.0.0`, a matching `v1.0.0` Git t
    - manual `Terminal Activity Monitor: Refresh Native Terminal Names`;
    - no Terminal Activity view appears in Explorer;
    - clicking between terminals does not change their dots;
-   - a new shell command shows `🟢🟢` while untouched migrated terminals begin white;
-   - automatic activity and completion updates never switch away from the selected terminal;
-   - a command longer than the completion minimum shows `✅` or `❌` on the first visit after it finishes off-screen;
-   - leaving and returning to a completed terminal clears its displayed `✅` or `❌` without refreshing its age.
+   - a new shell command turns its terminal green while untouched migrated terminals begin white;
+   - output or substantial CPU activity turns the correct terminal green;
+   - no double-green, completion, or failure markers appear.
 
 8. Commit and tag the release:
 
