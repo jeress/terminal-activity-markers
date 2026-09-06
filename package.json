@@ -41,6 +41,7 @@
   ],
   "main": "./out/src/extension.js",
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "test": "npm run compile && node --test out/test/**/*.test.js",
@@ -86,7 +87,7 @@
         "terminalActivityDashboard.nativeNameMarkers": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically prefix native terminal names with 🟢, 🟡, or ⚪ activity dots. Names update when commands run and activity thresholds are crossed. This can momentarily focus terminals because of VS Code API limitations."
+          "description": "Prefix terminal names with 🟢, 🟡, or ⚪ activity dots. Automatic updates affect the selected terminal without revealing it. Other names update when selected or through Refresh Native Terminal Names."
         },
         "terminalActivityDashboard.renameExistingTerminals": {
           "type": "boolean",

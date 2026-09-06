@@ -6,7 +6,7 @@ Terminal Activity Monitor for VS Code helps people who keep many integrated term
 
 It adds compact status dots to terminal names so the native terminal list is easier to scan:
 
-- `🟢` — used within the active window, defaulting to one hour, or currently running a shell command.
+- `🟢` — activity observed within the active window, defaulting to one hour.
 - `🟡` — used within the recent window, defaulting to 24 hours.
 - `⚪` — older than the recent window.
 
@@ -14,7 +14,7 @@ It adds compact status dots to terminal names so the native terminal list is eas
 
 Terminal Activity Monitor has no telemetry, analytics, accounts, or network requests. All processing stays on the machine where the VS Code extension host runs.
 
-The extension stores only each terminal's process ID and last-activity timestamp in VS Code's local extension state. It checks local process counters and terminal-device timestamps to detect activity. When VS Code exposes shell-output events, the extension uses only their timing and immediately discards the content. Command lines and terminal output are never logged, stored, or transmitted.
+The extension stores a process identity (host name, process ID, and process start time) and last-activity timestamp in VS Code's workspace extension state. This keeps reused process IDs and separate workspaces from inheriting unrelated activity. It checks local process counters and terminal-device timestamps to detect activity. When VS Code exposes shell-output events, the extension uses only their timing and immediately discards the content. Command lines and terminal output are never logged, stored, or transmitted.
 
 ## Why This Exists
 
@@ -60,7 +60,7 @@ Reload the VS Code window after installing or upgrading:
 ```sh
 git clone https://github.com/jeress/terminal-activity-markers.git
 cd terminal-activity-markers
-npm install
+npm ci
 npm test
 npm run package
 ```
@@ -76,13 +76,15 @@ After installation, open several integrated terminals. The extension will mark t
 - Leave it alone past the active window and it becomes `🟡 name`.
 - Leave it alone past the recent window and it becomes `⚪ name`.
 
+Automatic name updates affect only the selected terminal and never reveal the terminal panel. Other terminals continue to be monitored, but their displayed dots update when selected or when you run a full refresh. Selecting a terminal updates its dot without counting as activity.
+
 To manually force a full marker refresh, run:
 
 ```text
 Terminal Activity Monitor: Refresh Native Terminal Names
 ```
 
-Use that command sparingly. VS Code only exposes a command to rename the active terminal, so a full refresh has to briefly switch through terminals to rename them.
+VS Code only exposes a command to rename the active terminal, so a full refresh briefly switches through terminals whose names need updating. It can reveal the terminal panel. It requests that keyboard focus be preserved and restores the original terminal selection unless you select another terminal during the refresh. A refresh with no name changes does not reveal or switch terminals.
 
 To remove the dots and turn off automatic markers, run **Terminal Activity Monitor: Disable and Clear Native Markers**. Re-enable them with the `nativeNameMarkers` setting.
 
@@ -90,9 +92,9 @@ To remove the dots and turn off automatic markers, run **Terminal Activity Monit
 
 | Setting | Default | Description |
 | --- | ---: | --- |
-| `terminalActivityDashboard.activeAfterHours` | `1` | Keep a terminal green for this many hours after creation or reported shell command activity. |
+| `terminalActivityDashboard.activeAfterHours` | `1` | Keep a terminal green for this many hours after creation or detected shell-command, output, or CPU activity. |
 | `terminalActivityDashboard.parkedAfterHours` | `24` | Turn a terminal's dot from yellow to white after this many hours without activity. |
-| `terminalActivityDashboard.refreshIntervalSeconds` | `5` | Refresh cadence for native terminal activity dots. |
+| `terminalActivityDashboard.refreshIntervalSeconds` | `5` | Process sampling and selected-terminal dot refresh cadence. |
 | `terminalActivityDashboard.nativeNameMarkers` | `true` | Prefix native terminal names with `🟢`, `🟡`, or `⚪`. |
 | `terminalActivityDashboard.renameExistingTerminals` | `true` | Apply native name markers to terminals that were open before the extension activated. |
 
@@ -108,6 +110,8 @@ For shell-integrated commands, it observes output timing and immediately discard
 
 Recent shell output or substantial CPU activity keeps a terminal green even if it has not been focused recently. Merely keeping a process open does not.
 
+Unknown pre-existing terminals begin white until activity is observed. The first upgrade to the stronger process identity format also starts restored terminals white; old PID-only timestamps cannot safely be matched. If process identity inspection is unavailable, activity tracking continues without restoring timestamps across reloads.
+
 VS Code does not expose arbitrary terminal output through a stable extension API, so background output that occurs outside shell-execution tracking may not update activity by itself.
 
 ## Native Terminal Explorer Limitation
@@ -121,7 +125,7 @@ VS Code does not currently provide a supported way for extensions to:
 - reorder existing native Terminal Explorer rows;
 - rename an arbitrary terminal without making it active.
 
-Because terminal renaming targets the active terminal, a refresh briefly cycles through terminals whose dots need to change, then restores the previously active terminal. The extension verifies each rename and retries when VS Code focus changes lag behind.
+Automatic updates rename only the selected terminal. An explicit full refresh cycles through terminals whose dots need to change, verifies each rename, and restores the previous selection unless interrupted by a user selection. Automatic failures retry with increasing delays, capped at five minutes, without repeated notifications. Explicit refreshes bypass that delay and report failures.
 
 ## Distribution
 
@@ -132,7 +136,7 @@ If VS Code eventually adds stable APIs for terminal row decoration, sorting, or 
 ## Development
 
 ```sh
-npm install
+npm ci
 npm run compile
 npm test
 npm run package
@@ -140,9 +144,13 @@ npm run package
 
 Useful files:
 
-- `src/extension.ts` — VS Code extension activation, terminal tracking, and native-name marker logic.
-- `src/model.ts` — activity bucket classification and age formatting.
-- `test/model.test.ts` — unit tests for activity classification.
+- `src/extension.ts` — VS Code events, activity tracking, and persistence scheduling.
+- `src/model.ts` — three activity buckets, marker cleanup, and process parsing.
+- `src/renamer.ts` and `src/scheduler.ts` — selection-safe renaming and bounded work queues.
+- `src/processes.ts` and `src/state.ts` — process inspection and validated restoration.
+- `test/` — regression tests for tracking, renaming, queues, persistence, and process inspection.
+
+Packaging compiles the extension automatically. CI runs tests and builds a VSIX on macOS, Linux, and Windows with Node.js 22.
 
 ## License
 

@@ -3,38 +3,45 @@ import test from 'node:test';
 import {
   classifySession,
   detectActiveProcessRoots,
-  formatAge,
   parseProcessSamples,
   parseProcessTerminalDevices,
   stripNativeMarker,
 } from '../src/model';
 
 const hour = 3_600_000;
-const thresholds = { activeAfterHours: 1, parkedAfterHours: 24, staleAfterHours: 168 };
+const thresholds = { activeAfterHours: 1, parkedAfterHours: 24 };
 
-test('idle sessions move through active, recent, parked, and stale', () => {
+test('idle sessions move through the three visible buckets', () => {
   const now = 200 * hour;
   assert.equal(classifySession({ lastActivity: now - 30 * 60_000 }, now, thresholds), 'active');
   assert.equal(classifySession({ lastActivity: now - hour }, now, thresholds), 'recent');
   assert.equal(classifySession({ lastActivity: now - 24 * hour }, now, thresholds), 'parked');
-  assert.equal(classifySession({ lastActivity: now - 168 * hour }, now, thresholds), 'stale');
-});
-
-test('age labels remain compact', () => {
-  const now = 10 * 24 * hour;
-  assert.equal(formatAge(now - 10_000, now), 'now');
-  assert.equal(formatAge(now - 5 * 60_000, now), '5m');
-  assert.equal(formatAge(now - 3 * hour, now), '3h');
-  assert.equal(formatAge(now - 3 * 24 * hour, now), '3d');
+  assert.equal(classifySession({ lastActivity: now - 168 * hour }, now, thresholds), 'parked');
 });
 
 test('native activity markers are completely removed', () => {
-  assert.equal(stripNativeMarker('🟢 Active zsh'), 'zsh');
+  assert.equal(stripNativeMarker('🟢 Active zsh'), 'Active zsh');
   assert.equal(stripNativeMarker('🟢 zsh'), 'zsh');
-  assert.equal(stripNativeMarker('🟢 Active 🟡 Recent zsh'), 'zsh');
+  assert.equal(stripNativeMarker('🟢 🟡 zsh'), 'zsh');
   assert.equal(stripNativeMarker('[1 RUN] project'), 'project');
-  assert.equal(stripNativeMarker('🟢 Active'), 'Terminal');
+  assert.equal(stripNativeMarker('🟢 Active'), 'Active');
+  assert.equal(stripNativeMarker('Active project'), 'Active project');
+  assert.equal(stripNativeMarker('Recent work'), 'Recent work');
+  assert.equal(stripNativeMarker('Idle worker'), 'Idle worker');
   assert.equal(stripNativeMarker('zsh'), 'zsh');
+});
+
+test('CPU listings support Linux day durations and Windows ticks', () => {
+  assert.equal(parseProcessSamples('101 1 2-01:02:03')[0].cpuSeconds, 176523);
+  assert.equal(parseProcessSamples('101 1 15000000', true)[0].cpuSeconds, 1.5);
+  assert.deepEqual(parseProcessSamples('101 1 1--2'), []);
+});
+
+test('process ancestry cycles and reset CPU counters do not produce activity', () => {
+  assert.deepEqual([...detectActiveProcessRoots([1], new Map([[2, 10]]), [
+    { processId: 2, parentProcessId: 3, cpuSeconds: 1 },
+    { processId: 3, parentProcessId: 2, cpuSeconds: 5 },
+  ], 0.5)], []);
 });
 
 test('process listings parse elapsed CPU time', () => {

@@ -35,6 +35,15 @@ Public releases use semantic versions such as `1.0.0`, a matching `v1.0.0` Git t
    - a new shell command turns its terminal green while untouched migrated terminals begin white;
    - output or substantial CPU activity turns the correct terminal green;
    - no double-green, completion, or failure markers appear.
+   - keep the terminal panel hidden and type in an editor across several polling cycles; the panel stays hidden and keyboard focus stays in the editor;
+   - a full refresh with unchanged names does not reveal or switch terminals;
+   - background dots update on selection without recording new activity;
+   - select a different terminal during a full refresh; the sweep stops and preserves that selection;
+   - rename a terminal to `Active project`; automatic and manual refreshes preserve the name;
+   - disable and clear markers while a refresh is pending; no queued update adds dots again;
+   - close a terminal during a full refresh; no unrelated terminal is renamed;
+   - reload the same workspace with surviving terminal processes and confirm timestamps are restored;
+   - test long-running output on macOS, Linux, and Windows, including an available SSH or container extension host.
 
 8. Commit and tag the release:
 

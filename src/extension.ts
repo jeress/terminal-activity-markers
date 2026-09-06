@@ -1,413 +1,265 @@
 import * as vscode from 'vscode';
-import { execFile } from 'node:child_process';
-import { stat } from 'node:fs/promises';
-import {
-  ActivityBucket,
-  BucketThresholds,
-  classifySession,
-  detectActiveProcessRoots,
-  parseProcessSamples,
-  parseProcessTerminalDevices,
-  stripNativeMarker,
-} from './model';
-
-interface PersistedActivity {
-  processId: number;
-  lastActivity: number;
-}
+import { setMaxListeners } from 'node:events';
+import { ActivityBucket, BucketThresholds, classifySession, detectActiveProcessRoots, stripNativeMarker } from './model';
+import { readProcessIdentity, readProcessSamples, readTerminalDeviceMtimes } from './processes';
+import { RefreshQueue } from './scheduler';
+import { TerminalRenamer } from './renamer';
+import { readPersistedActivities, restoreActivity } from './state';
 
 interface TerminalActivity {
   terminal: vscode.Terminal;
   baseName: string;
   lastActivity: number;
   lastActivityNotification: number;
+  observed: boolean;
   processId?: number;
+  identity?: string;
   existingAtActivation: boolean;
   lastAppliedNativeName?: string;
+  retryAfter: number;
+  failures: number;
 }
 
-const STORAGE_KEY = 'terminalActivityDashboard.activities';
-const STORAGE_VERSION_KEY = 'terminalActivityDashboard.activitiesVersion';
-const STORAGE_VERSION = 6;
-const MINIMUM_CPU_DELTA_SECONDS = 0.5;
-const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = {
-  active: '🟢',
-  recent: '🟡',
-  parked: '⚪',
-  stale: '⚪',
-};
+const STORAGE_KEY = 'terminalActivityDashboard.activities.v7';
+const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = { active: '🟢', recent: '🟡', parked: '⚪' };
+const processReader = { readProcessIdentity, readProcessSamples, readTerminalDeviceMtimes };
 
-class TerminalActivityTracker implements vscode.Disposable {
+export class TerminalActivityTracker implements vscode.Disposable {
   private readonly activities = new Map<vscode.Terminal, TerminalActivity>();
   private readonly disposables: vscode.Disposable[] = [];
-  private persistedByProcessId = new Map<number, PersistedActivity>();
+  private readonly abort = new AbortController();
+  private readonly persisted;
   private refreshTimer?: NodeJS.Timeout;
-  private nativeNameRefresh = Promise.resolve();
+  private persistTimer?: NodeJS.Timeout;
+  private disposed = false;
+  private polling = false;
   private previousCpuByProcessId = new Map<number, number>();
   private previousTerminalMtimeByProcessId = new Map<number, number>();
   private readonly skipNextTerminalDeviceSample = new Set<number>();
-  private readonly migrateLegacyFocusActivity: boolean;
-  private applyingNativeNames = false;
+  private readonly renamer = new TerminalRenamer<vscode.Terminal>({
+    active: () => vscode.window.activeTerminal,
+    exists: (terminal) => this.activities.has(terminal),
+    rename: (name) => vscode.commands.executeCommand('workbench.action.terminal.renameWithArg', { name }),
+    wait: () => new Promise((resolve) => setTimeout(resolve, 25)),
+  });
+  private readonly queue = new RefreshQueue((kind) => this.applyNativeNameMarkers(kind));
+  private readonly persistence = new RefreshQueue(async () => {
+    const entries = [...this.activities.values()]
+      .filter((activity) => activity.identity !== undefined)
+      .map((activity) => ({ identity: activity.identity!, lastActivity: activity.lastActivity }));
+    await this.context.workspaceState.update(STORAGE_KEY, entries);
+  });
 
-  constructor(private readonly context: vscode.ExtensionContext) {
-    const persisted = context.globalState.get<PersistedActivity[]>(STORAGE_KEY, []);
-    this.persistedByProcessId = new Map(persisted.map((entry) => [entry.processId, entry]));
-
-    this.migrateLegacyFocusActivity = context.globalState.get<number>(STORAGE_VERSION_KEY, 1) < STORAGE_VERSION;
-    const restoredTerminals = vscode.window.terminals.map((terminal) => this.trackTerminal(terminal, true));
-
+  constructor(private readonly context: vscode.ExtensionContext, private readonly processes = processReader) {
+    // Each tracked output stream and subprocess removes its own abort listener.
+    setMaxListeners(0, this.abort.signal);
+    this.persisted = readPersistedActivities(context.workspaceState.get(STORAGE_KEY), Date.now());
+    for (const terminal of vscode.window.terminals) void this.trackTerminal(terminal, true);
     this.disposables.push(
       vscode.window.onDidOpenTerminal((terminal) => { void this.trackTerminal(terminal, false); }),
-      vscode.window.onDidCloseTerminal((terminal) => this.removeTerminal(terminal)),
-      vscode.window.onDidChangeActiveTerminal((terminal) => {
-        if (terminal && !this.applyingNativeNames) this.ensureActivity(terminal);
-      }),
-      vscode.window.onDidChangeTerminalShellIntegration((event) => {
-        const activity = this.ensureActivity(event.terminal);
-        this.refresh('terminal', activity);
-      }),
-      vscode.window.onDidStartTerminalShellExecution((event) => {
-        const activity = this.ensureActivity(event.terminal);
-        this.recordActivity(activity, true);
-        try {
-          const output = event.execution.read();
-          void this.monitorExecutionOutput(activity, output);
-        } catch {
-          // Some shell integrations cannot stream execution output.
+      vscode.window.onDidCloseTerminal((terminal) => {
+        const pid = this.activities.get(terminal)?.processId;
+        this.activities.delete(terminal);
+        if (pid !== undefined) {
+          this.previousTerminalMtimeByProcessId.delete(pid);
+          this.skipNextTerminalDeviceSample.delete(pid);
         }
+        this.schedulePersist();
+      }),
+      vscode.window.onDidChangeActiveTerminal((terminal) => {
+        this.renamer.selectionChanged(terminal);
+        if (terminal) this.requestRefresh();
+      }),
+      vscode.window.onDidChangeTerminalShellIntegration(() => this.requestRefresh()),
+      vscode.window.onDidStartTerminalShellExecution((event) => {
+        const activity = this.activities.get(event.terminal);
+        if (!activity) return;
+        this.recordActivity(activity, true);
+        try { void this.monitorExecutionOutput(activity, event.execution.read()); } catch { /* Stream unavailable. */ }
       }),
       vscode.window.onDidEndTerminalShellExecution((event) => {
-        const activity = this.ensureActivity(event.terminal);
-        this.recordActivity(activity, true);
+        const activity = this.activities.get(event.terminal);
+        if (activity) this.recordActivity(activity, true);
       }),
       vscode.workspace.onDidChangeConfiguration((event) => {
         if (event.affectsConfiguration('terminalActivityDashboard')) {
           this.startRefreshTimer();
-          this.refresh(true);
+          this.requestRefresh();
         }
       }),
     );
-
     this.startRefreshTimer();
-    void Promise.all(restoredTerminals).then(() => {
-      void this.context.globalState.update(STORAGE_VERSION_KEY, STORAGE_VERSION);
-      void this.refreshProcessActivity();
-    });
   }
 
-  refresh(syncNativeNames: boolean | 'terminal' = false, targetActivity?: TerminalActivity): void {
-    if (syncNativeNames) {
-      this.queueNativeNameRefresh(syncNativeNames === 'terminal' ? targetActivity : undefined);
-    }
-  }
-
-  async refreshNativeNames(): Promise<void> {
-    this.nativeNameRefresh = this.nativeNameRefresh
-      .then(() => this.applyNativeNameMarkers({ clearOnly: false }), () => this.applyNativeNameMarkers({ clearOnly: false }));
-    await this.nativeNameRefresh;
-  }
+  refreshNativeNames(): Promise<void> { return this.queue.request('manual'); }
 
   async clearNativeNameMarkers(): Promise<void> {
     const configuration = vscode.workspace.getConfiguration('terminalActivityDashboard');
     const inspection = configuration.inspect<boolean>('nativeNameMarkers');
-    const target = inspection?.workspaceFolderValue !== undefined
-      ? vscode.ConfigurationTarget.WorkspaceFolder
-      : inspection?.workspaceValue !== undefined
-        ? vscode.ConfigurationTarget.Workspace
-        : vscode.ConfigurationTarget.Global;
+    const target = inspection?.workspaceValue !== undefined
+      ? vscode.ConfigurationTarget.Workspace : vscode.ConfigurationTarget.Global;
     await configuration.update('nativeNameMarkers', false, target);
-    this.nativeNameRefresh = this.nativeNameRefresh
-      .then(() => this.applyNativeNameMarkers({ clearOnly: true }), () => this.applyNativeNameMarkers({ clearOnly: true }));
-    await this.nativeNameRefresh;
+    await this.queue.request('clear');
   }
 
   dispose(): void {
+    if (this.disposed) return;
+    // Submit a final snapshot before shutting down the persistence queue.
+    if (this.persistTimer) clearTimeout(this.persistTimer);
+    void this.persistence.request('automatic').catch(() => {}).finally(() => this.persistence.dispose());
+    this.disposed = true;
+    this.abort.abort();
     if (this.refreshTimer) clearInterval(this.refreshTimer);
+    this.queue.dispose();
+    this.renamer.dispose();
     for (const disposable of this.disposables) disposable.dispose();
   }
 
-  private trackTerminal(terminal: vscode.Terminal, existingAtActivation: boolean): Promise<void> {
-    const activity = this.ensureActivity(terminal, existingAtActivation);
-    const processIdReady = Promise.resolve(terminal.processId).then((processId) => {
-      if (processId === undefined || !this.activities.has(terminal)) return;
+  private async trackTerminal(terminal: vscode.Terminal, existingAtActivation: boolean): Promise<void> {
+    const activity: TerminalActivity = {
+      terminal, baseName: stripNativeMarker(terminal.name),
+      lastActivity: Date.now() - (existingAtActivation ? this.thresholds().parkedAfterHours * 3_600_000 : 0),
+      lastActivityNotification: 0, observed: false, existingAtActivation, retryAfter: 0, failures: 0,
+    };
+    this.activities.set(terminal, activity);
+    this.requestRefresh();
+    try {
+      const processId = await terminal.processId;
+      if (this.disposed || processId === undefined || !this.activities.has(terminal)) return;
       activity.processId = processId;
-      const persisted = this.persistedByProcessId.get(processId);
-      if (persisted) {
-        activity.lastActivity = this.restoredLastActivity(persisted.lastActivity, activity);
-      }
-      this.refresh('terminal', activity);
-      void this.persist();
-    });
-    this.refresh('terminal', activity);
-    return processIdReady;
-  }
-
-  private ensureActivity(terminal: vscode.Terminal, existingAtActivation = false): TerminalActivity {
-    let activity = this.activities.get(terminal);
-    if (!activity) {
-      activity = {
-        terminal,
-        baseName: stripNativeMarker(terminal.name),
-        lastActivity: this.initialLastActivity(existingAtActivation),
-        lastActivityNotification: 0,
-        existingAtActivation,
-      };
-      this.activities.set(terminal, activity);
-    } else if (terminal.name !== activity.lastAppliedNativeName) {
-      activity.baseName = stripNativeMarker(terminal.name);
-    }
-    return activity;
-  }
-
-  private removeTerminal(terminal: vscode.Terminal): void {
-    this.activities.delete(terminal);
-    this.refresh(false);
-    void this.persist();
+      const identity = await this.processes.readProcessIdentity(processId, this.abort.signal);
+      if (this.disposed || !this.activities.has(terminal)) return;
+      activity.identity = identity;
+      activity.lastActivity = restoreActivity(activity.lastActivity, activity.observed,
+        existingAtActivation, this.persisted.get(identity)?.lastActivity);
+      this.requestRefresh();
+      this.schedulePersist();
+    } catch { /* Missing identity disables restoration, not activity tracking. */ }
   }
 
   private thresholds(): BucketThresholds {
     const configuration = vscode.workspace.getConfiguration('terminalActivityDashboard');
     const activeAfterHours = configuration.get<number>('activeAfterHours', 1);
-    const configuredParked = configuration.get<number>('parkedAfterHours', 24);
-    const parkedAfterHours = Math.max(configuredParked, activeAfterHours);
-    const configuredStale = configuration.get<number>('staleAfterHours', 168);
-    return {
-      activeAfterHours,
-      parkedAfterHours,
-      staleAfterHours: Math.max(configuredStale, parkedAfterHours),
-    };
-  }
-
-  private initialLastActivity(existingAtActivation: boolean): number {
-    if (!existingAtActivation) return Date.now();
-    const parkedAfterMs = this.thresholds().parkedAfterHours * 3_600_000;
-    return Date.now() - parkedAfterMs;
-  }
-
-  private restoredLastActivity(persistedLastActivity: number, activity: TerminalActivity): number {
-    if (!this.migrateLegacyFocusActivity || !activity.existingAtActivation) return persistedLastActivity;
-    return Math.min(persistedLastActivity, this.initialLastActivity(true));
+    return { activeAfterHours, parkedAfterHours: Math.max(activeAfterHours, configuration.get<number>('parkedAfterHours', 24)) };
   }
 
   private startRefreshTimer(): void {
     if (this.refreshTimer) clearInterval(this.refreshTimer);
-    const seconds = vscode.workspace
-      .getConfiguration('terminalActivityDashboard')
-      .get<number>('refreshIntervalSeconds', 30);
+    const seconds = vscode.workspace.getConfiguration('terminalActivityDashboard').get<number>('refreshIntervalSeconds', 5);
     this.refreshTimer = setInterval(() => { void this.refreshProcessActivity(); }, Math.max(5, seconds) * 1000);
   }
 
   private async refreshProcessActivity(): Promise<void> {
+    if (this.disposed || this.polling) return;
+    const roots = [...this.activities.values()].flatMap((activity) => activity.processId === undefined ? [] : [activity.processId]);
+    if (roots.length === 0) { this.requestRefresh(); return; }
+    this.polling = true;
     try {
-      const samples = await readProcessSamples();
-      const rootProcessIds = [...this.activities.values()]
-        .map((activity) => activity.processId)
-        .filter((processId): processId is number => processId !== undefined);
-      const activeRoots = detectActiveProcessRoots(
-        rootProcessIds,
-        this.previousCpuByProcessId,
-        samples,
-        MINIMUM_CPU_DELTA_SECONDS,
-      );
-      const terminalMtimes = await readTerminalDeviceMtimes(rootProcessIds);
-      for (const [processId, mtimeMs] of terminalMtimes) {
-        const previousMtimeMs = this.previousTerminalMtimeByProcessId.get(processId);
-        if (this.skipNextTerminalDeviceSample.delete(processId)) continue;
-        if (previousMtimeMs !== undefined && mtimeMs > previousMtimeMs) activeRoots.add(processId);
+      // Either fallback remains useful when the other is unavailable.
+      const [cpu, devices] = await Promise.allSettled([
+        this.processes.readProcessSamples(this.abort.signal), this.processes.readTerminalDeviceMtimes(roots, this.abort.signal),
+      ]);
+      if (this.disposed) return;
+      const activeRoots = cpu.status === 'fulfilled'
+        ? detectActiveProcessRoots(roots, this.previousCpuByProcessId, cpu.value, 0.5) : new Set<number>();
+      if (cpu.status === 'fulfilled') this.previousCpuByProcessId = new Map(cpu.value.map((sample) => [sample.processId, sample.cpuSeconds]));
+      if (devices.status === 'fulfilled') {
+        for (const [pid, mtime] of devices.value) {
+          const previous = this.previousTerminalMtimeByProcessId.get(pid);
+          if (this.skipNextTerminalDeviceSample.delete(pid)) continue;
+          if (previous !== undefined && mtime > previous) activeRoots.add(pid);
+        }
+        this.previousTerminalMtimeByProcessId = devices.value;
       }
       for (const activity of this.activities.values()) {
         if (activity.processId !== undefined && activeRoots.has(activity.processId)) this.recordActivity(activity);
       }
-      this.previousCpuByProcessId = new Map(samples.map((sample) => [sample.processId, sample.cpuSeconds]));
-      this.previousTerminalMtimeByProcessId = terminalMtimes;
-    } catch {
-      // Shell integration events remain available when process inspection is unsupported.
-    }
-    this.refresh(true);
+      this.requestRefresh();
+    } finally { this.polling = false; }
   }
 
-  private recordActivity(activity: TerminalActivity, forceNotification = false): void {
-    const now = Date.now();
-    activity.lastActivity = now;
-    if (!forceNotification && now - activity.lastActivityNotification < 1_000) return;
-    activity.lastActivityNotification = now;
-    this.refresh('terminal', activity);
-    void this.persist();
+  private recordActivity(activity: TerminalActivity, force = false): void {
+    if (this.disposed || !this.activities.has(activity.terminal)) return;
+    activity.observed = true;
+    activity.lastActivity = Date.now();
+    if (!force && activity.lastActivity - activity.lastActivityNotification < 1_000) return;
+    activity.lastActivityNotification = activity.lastActivity;
+    this.requestRefresh();
+    this.schedulePersist();
   }
 
   private async monitorExecutionOutput(activity: TerminalActivity, output: AsyncIterable<string>): Promise<void> {
+    const iterator = output[Symbol.asyncIterator]();
+    let stop: (() => void) | undefined;
+    const cancel = () => stop?.();
+    this.abort.signal.addEventListener('abort', cancel, { once: true });
+    const closed = vscode.window.onDidCloseTerminal((terminal) => { if (terminal === activity.terminal) cancel(); });
     try {
-      for await (const _chunk of output) {
-        if (!this.activities.has(activity.terminal)) return;
+      while (!this.disposed && this.activities.has(activity.terminal)) {
+        const stopped = new Promise<IteratorResult<string>>((resolve) => {
+          stop = () => resolve({ done: true, value: undefined });
+        });
+        const next = await Promise.race([iterator.next(), stopped]);
+        stop?.();
+        if (next.done || this.disposed || !this.activities.has(activity.terminal)) break;
         this.recordActivity(activity);
       }
-    } catch {
-      // Some shell integrations cannot stream execution output.
+    } catch { /* Stream unavailable. */ }
+    finally {
+      this.abort.signal.removeEventListener('abort', cancel);
+      closed.dispose();
+      // Do not block shutdown on an iterator waiting for shell output.
+      void Promise.resolve().then(() => iterator.return?.()).catch(() => {});
     }
   }
 
-  private queueNativeNameRefresh(targetActivity?: TerminalActivity): void {
-    const enabled = vscode.workspace
-      .getConfiguration('terminalActivityDashboard')
-      .get<boolean>('nativeNameMarkers', true);
-    if (!enabled) return;
-
-    this.nativeNameRefresh = this.nativeNameRefresh
-      .then(
-        () => this.applyNativeNameMarkers({ clearOnly: false, targetActivity }),
-        () => this.applyNativeNameMarkers({ clearOnly: false, targetActivity }),
-      );
+  private requestRefresh(): void {
+    if (!this.disposed) void this.queue.request('automatic').catch(() => {});
   }
 
-  private async applyNativeNameMarkers(options: { clearOnly: boolean; targetActivity?: TerminalActivity }): Promise<void> {
-    const { clearOnly, targetActivity } = options;
-    const configuration = vscode.workspace.getConfiguration('terminalActivityDashboard');
-    if (!clearOnly && !configuration.get<boolean>('nativeNameMarkers', true)) return;
-
-    this.applyingNativeNames = true;
-    try {
-      const renameExistingTerminals = clearOnly
-        ? true
-        : configuration.get<boolean>('renameExistingTerminals', true);
-      const activeTerminal = vscode.window.activeTerminal;
-      const now = Date.now();
-      const thresholds = this.thresholds();
-      const activities = targetActivity ? [targetActivity] : [...this.activities.values()];
-      const failedNames: string[] = [];
-
-      for (const activity of activities) {
-        if (!this.activities.has(activity.terminal)) continue;
-        if (activity.existingAtActivation && !renameExistingTerminals) continue;
-        const bucket = this.displayBucket(this.classifyActivity(activity, now, thresholds));
-        const baseName = clearOnly ? stripNativeMarker(activity.terminal.name) : activity.baseName;
-        const targetName = clearOnly ? baseName : `${NATIVE_BUCKET_PREFIXES[bucket]} ${baseName}`;
-        if (activity.terminal.name === targetName) {
-          activity.lastAppliedNativeName = targetName;
-          activity.baseName = baseName;
-          continue;
-        }
-
-        const renamed = await this.renameTerminal(activity.terminal, targetName);
-        if (renamed) {
-          activity.lastAppliedNativeName = targetName;
-          activity.baseName = baseName;
-          if (activity.processId !== undefined) this.skipNextTerminalDeviceSample.add(activity.processId);
-        } else {
-          failedNames.push(activity.terminal.name);
-        }
+  private async applyNativeNameMarkers(kind: 'automatic' | 'manual' | 'clear'): Promise<void> {
+    const clear = kind === 'clear';
+    const explicit = kind !== 'automatic';
+    const enabled = () => !this.disposed && (clear || vscode.workspace.getConfiguration('terminalActivityDashboard').get<boolean>('nativeNameMarkers', true));
+    const renameExisting = clear || vscode.workspace.getConfiguration('terminalActivityDashboard').get<boolean>('renameExistingTerminals', true);
+    let failures = 0;
+    await this.renamer.apply([...this.activities.keys()], (terminal) => {
+      const activity = this.activities.get(terminal)!;
+      if ((!renameExisting && activity.existingAtActivation) || (!explicit && activity.retryAfter > Date.now())) return;
+      if (terminal.name !== activity.lastAppliedNativeName) activity.baseName = stripNativeMarker(terminal.name);
+      return clear ? activity.baseName : `${NATIVE_BUCKET_PREFIXES[classifySession(activity, Date.now(), this.thresholds())]} ${activity.baseName}`;
+    }, explicit, enabled, (terminal, success) => {
+      const activity = this.activities.get(terminal)!;
+      if (success) {
+        activity.lastAppliedNativeName = terminal.name;
+        activity.failures = 0;
+        activity.retryAfter = 0;
+        if (activity.processId !== undefined) this.skipNextTerminalDeviceSample.add(activity.processId);
+      } else {
+        failures += 1;
+        activity.failures += 1;
+        activity.retryAfter = Date.now() + Math.min(300_000, 5_000 * 2 ** Math.min(activity.failures, 6));
       }
-
-      if (activeTerminal && vscode.window.terminals.includes(activeTerminal)) {
-        await this.showTerminalForRename(activeTerminal);
-      }
-      if (failedNames.length > 0) {
-        void vscode.window.showWarningMessage(
-          `Terminal Activity Monitor could not rename ${failedNames.length} terminal${failedNames.length === 1 ? '' : 's'}. Try the command again after focusing the Terminal panel.`,
-        );
-      }
-      await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    } finally {
-      this.applyingNativeNames = false;
+    });
+    if (explicit && failures > 0 && !this.disposed) {
+      void vscode.window.showWarningMessage(`Terminal Activity Monitor could not rename ${failures} terminal(s). Focus the Terminal panel and try the command again.`);
     }
   }
 
-  private async showTerminalForRename(terminal: vscode.Terminal): Promise<void> {
-    terminal.show(false);
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      if (vscode.window.activeTerminal === terminal) return;
-      await new Promise<void>((resolve) => setTimeout(resolve, 25));
-    }
+  private schedulePersist(): void {
+    if (this.disposed || this.persistTimer) return;
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = undefined;
+      void this.persistence.request('automatic').catch(() => {});
+    }, 1_000);
   }
-
-  private async renameTerminal(terminal: vscode.Terminal, targetName: string): Promise<boolean> {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await this.showTerminalForRename(terminal);
-      if (vscode.window.activeTerminal !== terminal) continue;
-      await vscode.commands.executeCommand('workbench.action.terminal.renameWithArg', { name: targetName });
-      for (let wait = 0; wait < 20; wait += 1) {
-        if (terminal.name === targetName) return true;
-        await new Promise<void>((resolve) => setTimeout(resolve, 25));
-      }
-    }
-    return terminal.name === targetName;
-  }
-
-  private classifyActivity(activity: TerminalActivity, now: number, thresholds: BucketThresholds): ActivityBucket {
-    return classifySession(
-      { lastActivity: activity.lastActivity },
-      now,
-      thresholds,
-    );
-  }
-
-  private displayBucket(bucket: ActivityBucket): ActivityBucket {
-    return bucket === 'stale' ? 'parked' : bucket;
-  }
-
-  private async persist(): Promise<void> {
-    const entries = [...this.activities.values()]
-      .filter((activity): activity is TerminalActivity & { processId: number } => activity.processId !== undefined)
-      .map((activity) => ({
-        processId: activity.processId,
-        lastActivity: activity.lastActivity,
-      }));
-    await this.context.globalState.update(STORAGE_KEY, entries);
-  }
-
 }
 
 export function activate(context: vscode.ExtensionContext): void {
   const tracker = new TerminalActivityTracker(context);
-
-  context.subscriptions.push(
-    tracker,
+  context.subscriptions.push(tracker,
     vscode.commands.registerCommand('terminalActivityDashboard.refresh', () => tracker.refreshNativeNames()),
     vscode.commands.registerCommand('terminalActivityDashboard.refreshNativeNames', () => tracker.refreshNativeNames()),
     vscode.commands.registerCommand('terminalActivityDashboard.clearNativeNames', () => tracker.clearNativeNameMarkers()),
   );
-}
-
-export function deactivate(): void {}
-
-async function readProcessSamples() {
-  const windows = process.platform === 'win32';
-  const output = windows
-    ? await executeProcess('powershell.exe', [
-        '-NoProfile',
-        '-NonInteractive',
-        '-Command',
-        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.KernelModeTime + $_.UserModeTime)" }',
-      ])
-    : await executeProcess('ps', ['-axo', 'pid=,ppid=,time=']);
-  return parseProcessSamples(output, windows);
-}
-
-async function readTerminalDeviceMtimes(rootProcessIds: number[]): Promise<Map<number, number>> {
-  if (process.platform === 'win32' || rootProcessIds.length === 0) return new Map();
-  const output = await executeProcess('ps', [
-    '-p',
-    rootProcessIds.join(','),
-    '-o',
-    'pid=,tty=',
-  ]);
-  const devices = parseProcessTerminalDevices(output);
-  const mtimes = new Map<number, number>();
-  await Promise.all([...devices].map(async ([processId, device]) => {
-    try {
-      const details = await stat(`/dev/${device}`);
-      mtimes.set(processId, details.mtimeMs);
-    } catch {
-      // The terminal may have closed between process listing and stat.
-    }
-  }));
-  return mtimes;
-}
-
-function executeProcess(file: string, args: string[]): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(file, args, { maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
-      if (error) reject(error);
-      else resolve(stdout);
-    });
-  });
 }

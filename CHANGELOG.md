@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Automatic marker updates now affect only the selected terminal, without revealing the panel. Background dots update when selected or during an explicit full refresh.
+- Full refreshes skip unchanged names, request preserved keyboard focus, and yield to user terminal selection changes.
+- Coalesce refresh requests, prevent overlapping polls, bound subprocess execution, and cancel pending work on disposal.
+- Retry automatic rename failures with backoff instead of repeated warning messages.
+- Preserve user names, including names beginning with Active, Recent, or Idle. Ambiguous historical word labels are retained as part of the name.
+- Restore validated activity by workspace and host/PID/process-start identity. PID-only history is not migrated, and delayed restoration cannot overwrite newly observed activity.
+- Keep CPU and terminal-device fallbacks independent and support Linux CPU durations spanning days.
+- Add behavioral regression coverage and macOS/Linux/Windows CI. Packaging now compiles automatically.
+- Remove unused stale-bucket and age-label code and align documentation with observed-activity behavior.
+
 ## 1.1.5
 
 - Restore the stable v1.0.5 activity model with one green, yellow, or white age dot.
