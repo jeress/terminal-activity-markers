@@ -114,6 +114,31 @@ Unknown pre-existing terminals begin white until activity is observed. The first
 
 VS Code does not expose arbitrary terminal output through a stable extension API, so background output that occurs outside shell-execution tracking may not update activity by itself.
 
+## Codex session names in terminal descriptions
+
+Codex CLI 0.163.0 can send its session name as the application terminal title. VS Code can display that title in the description beside this extension's activity dot and terminal name.
+
+In each Codex profile's `config.toml`, add this field to the existing `[tui]` table:
+
+```toml
+[tui]
+terminal_title = ["thread-title"]
+```
+
+In VS Code user settings, use:
+
+```json
+"terminal.integrated.tabs.description": "${sequence}${separator}${task}${separator}${local}${separator}${cwdFolder}"
+```
+
+`${sequence}` reads the title sent by Codex, even when an activity marker or a manual rename has given the terminal a fixed name. Task, remote, and directory descriptions remain available after the session name. No extension update, background watcher, network request, or additional model call is required.
+
+Codex updates the title when the session name changes. The Codex setting applies when a TUI starts; already-running TUIs retain their in-memory title configuration. A session without a name may initially show its session ID. Existing terminal names and activity-dot behavior are preserved.
+
+Verified with Codex CLI 0.163.0 and VS Code 1.141: a native pseudo-terminal test emitted the exact renamed session title through OSC 0, and VS Code's installed label renderer reads that sequence for descriptions independently of a fixed terminal name.
+
+See the [official OpenAI terminal title documentation](https://learn.chatgpt.com/docs/developer-commands#configure-terminal-title-items-with-title).
+
 ## Native Terminal Explorer Limitation
 
 This extension intentionally works within stable VS Code APIs.
