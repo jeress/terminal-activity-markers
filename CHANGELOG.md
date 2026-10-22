@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.7
+
+- Hide the generic `Terminal` label while retaining the activity dot and native description. Captured session titles display directly after the dot; custom names remain intact. Preserve compact session labels across reload and restore `Terminal` when markers are cleared.
+
 ## 1.1.6
 
 - Preserve live application titles, including Codex session names, beside activity-marked terminal names. Parse bounded OSC title messages from the existing shell-integration stream so fixed-name renames do not hide later title changes. Preserve custom terminal names, avoid stacked titles after reload with verified name restoration, and provide an `applicationTitles` switch.

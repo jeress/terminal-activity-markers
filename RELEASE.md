@@ -26,6 +26,7 @@ Public releases use semantic versions such as `1.0.0`, a matching `v1.0.0` Git t
 7. Smoke-test:
 
    - several open terminals;
+   - confirm generic `Terminal` labels show only the dot or the captured session name, custom names remain intact, and clearing markers restores the original name;
    - in a fresh profile with shell integration, start an application after activation and confirm its title appears beside the activity dot and updates after a fixed-name rename;
    - confirm custom terminal names remain intact, the `applicationTitles` switch hides/restores titles, and disabling markers clears the appended title;
    - focus switching between terminals;

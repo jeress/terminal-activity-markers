@@ -258,3 +258,34 @@ test('reload restores only verified marker labels and does not accumulate sessio
     assert.equal(f.terminal.name, '🟢 My custom · terminal name');
   } finally { third.dispose(); }
 });
+
+test('generic Terminal labels become dot plus session title and survive reload and clearing', async () => {
+  const f = fixture();
+  (f.terminal as { name: string }).name = 'Terminal';
+  const first = new TerminalActivityTracker(f.context, f.reader);
+  try {
+    await settle();
+    assert.equal(f.terminal.name, '⚪');
+    started.fire({ terminal: f.terminal, execution: { read: () => (async function* () {
+      yield '\x1b]0;Membership conversion\x07';
+    })() } });
+    await settle(); await settle();
+    assert.equal(f.terminal.name, '🟢 Membership conversion');
+  } finally { first.dispose(); }
+  await settle();
+  const saved = f.writes.at(-1);
+  f.context.workspaceState.get = (() => saved) as typeof f.context.workspaceState.get;
+  const second = new TerminalActivityTracker(f.context, f.reader);
+  try {
+    await settle(); await second.refreshNativeNames();
+    assert.equal(f.terminal.name, '🟢 Membership conversion');
+    applicationTitles = false;
+    await second.refreshNativeNames();
+    assert.equal(f.terminal.name, '🟢');
+    applicationTitles = true;
+    await second.refreshNativeNames();
+    assert.equal(f.terminal.name, '🟢 Membership conversion');
+    await second.clearNativeNameMarkers();
+    assert.equal(f.terminal.name, 'Terminal');
+  } finally { second.dispose(); }
+});

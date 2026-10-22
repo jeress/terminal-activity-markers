@@ -148,7 +148,10 @@ export class TerminalActivityTracker implements vscode.Disposable {
         activity.baseName = saved.baseName;
         const unmarked = stripNativeMarker(initialName);
         const prefix = `${saved.baseName} · `;
-        if (activity.applicationTitle === undefined && unmarked.startsWith(prefix)) activity.applicationTitle = unmarked.slice(prefix.length);
+        if (activity.applicationTitle === undefined) {
+          if (unmarked.startsWith(prefix)) activity.applicationTitle = unmarked.slice(prefix.length);
+          else if (saved.baseName === 'Terminal' && unmarked !== saved.baseName) activity.applicationTitle = unmarked;
+        }
         activity.lastAppliedNativeName = terminal.name;
       }
       activity.lastActivity = restoreActivity(activity.lastActivity, activity.observed,
@@ -259,9 +262,11 @@ export class TerminalActivityTracker implements vscode.Disposable {
       if ((!renameExisting && activity.existingAtActivation) || (!explicit && activity.retryAfter > Date.now())) return;
       if (terminal.name !== activity.lastAppliedNativeName) activity.baseName = stripNativeMarker(terminal.name);
       const showTitles = vscode.workspace.getConfiguration('terminalActivityDashboard').get<boolean>('applicationTitles', true);
-      const title = showTitles && activity.applicationTitle && activity.applicationTitle !== activity.baseName
-        ? ` · ${activity.applicationTitle}` : '';
-      activity.pendingNativeName = clear ? activity.baseName : `${NATIVE_BUCKET_PREFIXES[classifySession(activity, Date.now(), this.thresholds())]} ${activity.baseName}${title}`;
+      const base = activity.baseName === 'Terminal' ? '' : activity.baseName;
+      const title = showTitles ? activity.applicationTitle : undefined;
+      const label = title && title !== activity.baseName ? (base ? `${base} · ${title}` : title) : base;
+      const marker = NATIVE_BUCKET_PREFIXES[classifySession(activity, Date.now(), this.thresholds())];
+      activity.pendingNativeName = clear ? activity.baseName : `${marker}${label ? ` ${label}` : ''}`;
       return activity.pendingNativeName;
     }, explicit, enabled, (terminal, success) => {
       const activity = this.activities.get(terminal)!;

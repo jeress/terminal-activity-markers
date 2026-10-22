@@ -41,13 +41,13 @@ Native row sorting and decoration controls are not exposed through the stable te
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.1.6.vsix --force
+code --install-extension terminal-activity-markers-1.1.7.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.1.6.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.1.7.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -75,7 +75,7 @@ After installation, open several integrated terminals. The extension will mark t
 - Clicking between terminals does not change their activity state.
 - Leave it alone past the active window and it becomes `🟡 name`.
 - Leave it alone past the recent window and it becomes `⚪ name`.
-- A shell-integrated application can supply a session title, displayed as `🟢 name · Session title`. Title changes update on the selected terminal without losing the dot or custom terminal name.
+- A shell-integrated application can supply a session title, displayed as `🟢 Session title` for generic terminals or `🟢 Custom name · Session title` for custom names. Title changes update on the selected terminal without losing the dot or custom terminal name.
 
 Automatic name updates affect only the selected terminal and never reveal the terminal panel. Other terminals continue to be monitored, but their displayed dots update when selected or when you run a full refresh. Selecting a terminal updates its dot without counting as activity.
 
@@ -118,7 +118,7 @@ VS Code does not expose arbitrary terminal output through a stable extension API
 
 ## Application and Codex session titles
 
-Version 1.1.6 keeps application-supplied session titles beside activity dots automatically. For example, `🟢 Terminal · Investigate membership conversion` updates to the next session title when Codex renames or switches sessions. Custom terminal names remain intact. Set `terminalActivityDashboard.applicationTitles` to `false` to hide the extra title.
+Version 1.1.7 hides the generic `Terminal` label. Existing descriptions remain visible beside the dot. Without a captured title, a generic terminal displays just its dot; when an application supplies a title, it displays as `🟢 Investigate membership conversion`. The label updates when Codex renames or switches sessions. Custom terminal names remain intact. Set `terminalActivityDashboard.applicationTitles` to `false` to hide the extra title.
 
 This uses the shell-execution stream already observed for activity timing. It reads only OSC 0/2 title messages, handles messages split across output chunks, and rejects oversized or control-containing titles. Application-title text stays in memory and is never included in saved activity state; only the original terminal name and a label fingerprint are saved for safe restoration. No new background process, network request, or model call is added.
 
