@@ -1,10 +1,12 @@
 import * as vscode from 'vscode';
 import { setMaxListeners } from 'node:events';
+import { createHash } from 'node:crypto';
 import { ActivityBucket, BucketThresholds, classifySession, detectActiveProcessRoots, stripNativeMarker } from './model';
 import { readProcessIdentity, readProcessSamples, readTerminalDeviceMtimes } from './processes';
 import { RefreshQueue } from './scheduler';
 import { TerminalRenamer } from './renamer';
 import { readPersistedActivities, restoreActivity } from './state';
+import { ApplicationTitleReader } from './titles';
 
 interface TerminalActivity {
   terminal: vscode.Terminal;
@@ -16,13 +18,17 @@ interface TerminalActivity {
   identity?: string;
   existingAtActivation: boolean;
   lastAppliedNativeName?: string;
+  pendingNativeName?: string;
   retryAfter: number;
   failures: number;
+  applicationTitle?: string;
+  titleReader?: ApplicationTitleReader;
 }
 
 const STORAGE_KEY = 'terminalActivityDashboard.activities.v7';
 const NATIVE_BUCKET_PREFIXES: Record<ActivityBucket, string> = { active: '🟢', recent: '🟡', parked: '⚪' };
 const processReader = { readProcessIdentity, readProcessSamples, readTerminalDeviceMtimes };
+const nameHash = (name: string) => createHash('sha256').update(name).digest('hex');
 
 export class TerminalActivityTracker implements vscode.Disposable {
   private readonly activities = new Map<vscode.Terminal, TerminalActivity>();
@@ -46,7 +52,10 @@ export class TerminalActivityTracker implements vscode.Disposable {
   private readonly persistence = new RefreshQueue(async () => {
     const entries = [...this.activities.values()]
       .filter((activity) => activity.identity !== undefined)
-      .map((activity) => ({ identity: activity.identity!, lastActivity: activity.lastActivity }));
+      .map((activity) => ({ identity: activity.identity!, lastActivity: activity.lastActivity,
+        ...(activity.lastAppliedNativeName !== undefined && activity.baseName.length <= 4096
+          ? { baseName: activity.baseName, markedNameHash: nameHash(activity.lastAppliedNativeName) } : {}),
+      }));
     await this.context.workspaceState.update(STORAGE_KEY, entries);
   });
 
@@ -116,6 +125,7 @@ export class TerminalActivityTracker implements vscode.Disposable {
   }
 
   private async trackTerminal(terminal: vscode.Terminal, existingAtActivation: boolean): Promise<void> {
+    const initialName = terminal.name;
     const activity: TerminalActivity = {
       terminal, baseName: stripNativeMarker(terminal.name),
       lastActivity: Date.now() - (existingAtActivation ? this.thresholds().parkedAfterHours * 3_600_000 : 0),
@@ -130,6 +140,17 @@ export class TerminalActivityTracker implements vscode.Disposable {
       const identity = await this.processes.readProcessIdentity(processId, this.abort.signal);
       if (this.disposed || !this.activities.has(terminal)) return;
       activity.identity = identity;
+      const saved = this.persisted.get(identity);
+      if (existingAtActivation && saved?.baseName !== undefined && saved.markedNameHash === nameHash(initialName)
+        && (terminal.name === initialName || terminal.name === activity.lastAppliedNativeName
+          || terminal.name === activity.pendingNativeName)) {
+        // Recover our own label only after verifying its fingerprint; never split a user's name by guesswork.
+        activity.baseName = saved.baseName;
+        const unmarked = stripNativeMarker(initialName);
+        const prefix = `${saved.baseName} · `;
+        if (activity.applicationTitle === undefined && unmarked.startsWith(prefix)) activity.applicationTitle = unmarked.slice(prefix.length);
+        activity.lastAppliedNativeName = terminal.name;
+      }
       activity.lastActivity = restoreActivity(activity.lastActivity, activity.observed,
         existingAtActivation, this.persisted.get(identity)?.lastActivity);
       this.requestRefresh();
@@ -189,6 +210,9 @@ export class TerminalActivityTracker implements vscode.Disposable {
   }
 
   private async monitorExecutionOutput(activity: TerminalActivity, output: AsyncIterable<string>): Promise<void> {
+    // Each execution has its own parser so an incomplete title cannot leak into the next command.
+    const titleReader = new ApplicationTitleReader();
+    activity.titleReader = titleReader;
     const iterator = output[Symbol.asyncIterator]();
     let stop: (() => void) | undefined;
     const cancel = () => stop?.();
@@ -202,6 +226,13 @@ export class TerminalActivityTracker implements vscode.Disposable {
         const next = await Promise.race([iterator.next(), stopped]);
         stop?.();
         if (next.done || this.disposed || !this.activities.has(activity.terminal)) break;
+        if (activity.titleReader === titleReader) {
+          const title = titleReader.read(next.value);
+          if (title !== undefined && title !== activity.applicationTitle) {
+            activity.applicationTitle = title;
+            this.requestRefresh();
+          }
+        }
         this.recordActivity(activity);
       }
     } catch { /* Stream unavailable. */ }
@@ -227,13 +258,18 @@ export class TerminalActivityTracker implements vscode.Disposable {
       const activity = this.activities.get(terminal)!;
       if ((!renameExisting && activity.existingAtActivation) || (!explicit && activity.retryAfter > Date.now())) return;
       if (terminal.name !== activity.lastAppliedNativeName) activity.baseName = stripNativeMarker(terminal.name);
-      return clear ? activity.baseName : `${NATIVE_BUCKET_PREFIXES[classifySession(activity, Date.now(), this.thresholds())]} ${activity.baseName}`;
+      const showTitles = vscode.workspace.getConfiguration('terminalActivityDashboard').get<boolean>('applicationTitles', true);
+      const title = showTitles && activity.applicationTitle && activity.applicationTitle !== activity.baseName
+        ? ` · ${activity.applicationTitle}` : '';
+      activity.pendingNativeName = clear ? activity.baseName : `${NATIVE_BUCKET_PREFIXES[classifySession(activity, Date.now(), this.thresholds())]} ${activity.baseName}${title}`;
+      return activity.pendingNativeName;
     }, explicit, enabled, (terminal, success) => {
       const activity = this.activities.get(terminal)!;
       if (success) {
         activity.lastAppliedNativeName = terminal.name;
         activity.failures = 0;
         activity.retryAfter = 0;
+        this.schedulePersist();
         if (activity.processId !== undefined) this.skipNextTerminalDeviceSample.add(activity.processId);
       } else {
         failures += 1;

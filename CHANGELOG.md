@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.1.6
+
+- Preserve live application titles, including Codex session names, beside activity-marked terminal names. Parse bounded OSC title messages from the existing shell-integration stream so fixed-name renames do not hide later title changes. Preserve custom terminal names, avoid stacked titles after reload with verified name restoration, and provide an `applicationTitles` switch.
 
 - Automatic marker updates now affect only the selected terminal, without revealing the panel. Background dots update when selected or during an explicit full refresh.
 - Full refreshes skip unchanged names, request preserved keyboard focus, and yield to user terminal selection changes.

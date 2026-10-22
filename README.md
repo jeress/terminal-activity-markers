@@ -14,7 +14,7 @@ It adds compact status dots to terminal names so the native terminal list is eas
 
 Terminal Activity Monitor has no telemetry, analytics, accounts, or network requests. All processing stays on the machine where the VS Code extension host runs.
 
-The extension stores a process identity (host name, process ID, and process start time) and last-activity timestamp in VS Code's workspace extension state. This keeps reused process IDs and separate workspaces from inheriting unrelated activity. It checks local process counters and terminal-device timestamps to detect activity. When VS Code exposes shell-output events, the extension uses only their timing and immediately discards the content. Command lines and terminal output are never logged, stored, or transmitted.
+The extension stores a process identity (host name, process ID, and process start time), last-activity timestamp, original terminal name, and a SHA-256 fingerprint of its own marked label in VS Code's workspace extension state. This keeps reused process IDs and separate workspaces from inheriting unrelated activity. It checks local process counters and terminal-device timestamps to detect activity. When VS Code exposes shell-output events, the extension observes their timing and recognizes only bounded OSC 0/2 application-title messages. It ignores ordinary output text. The fingerprint lets it restore its own labels without stacking old session titles after a reload. The current application title is held in memory to label the terminal; command lines, output text, and application titles are never logged, persisted, or transmitted.
 
 ## Why This Exists
 
@@ -27,9 +27,9 @@ This extension is a pragmatic workaround. It watches shell-execution events, the
 - It does not close terminal sessions automatically.
 - It does not truly color native Terminal Explorer rows.
 - It does not truly reorder the native Terminal Explorer.
-- It does not inspect or store terminal output content.
+- It does not retain command output; it recognizes only application-title messages in shell-integrated streams.
 
-Those capabilities are not exposed through VS Code's stable extension API.
+Native row sorting and decoration controls are not exposed through the stable terminal API.
 
 ## Install
 
@@ -41,13 +41,13 @@ Those capabilities are not exposed through VS Code's stable extension API.
 Alternatively, install the downloaded package from a terminal:
 
 ```sh
-code --install-extension terminal-activity-markers-1.1.5.vsix --force
+code --install-extension terminal-activity-markers-1.1.6.vsix --force
 ```
 
 On macOS, if the `code` command is not on your shell path:
 
 ```sh
-'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.1.5.vsix --force
+'/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code' --install-extension terminal-activity-markers-1.1.6.vsix --force
 ```
 
 Reload the VS Code window after installing or upgrading:
@@ -75,6 +75,7 @@ After installation, open several integrated terminals. The extension will mark t
 - Clicking between terminals does not change their activity state.
 - Leave it alone past the active window and it becomes `🟡 name`.
 - Leave it alone past the recent window and it becomes `⚪ name`.
+- A shell-integrated application can supply a session title, displayed as `🟢 name · Session title`. Title changes update on the selected terminal without losing the dot or custom terminal name.
 
 Automatic name updates affect only the selected terminal and never reveal the terminal panel. Other terminals continue to be monitored, but their displayed dots update when selected or when you run a full refresh. Selecting a terminal updates its dot without counting as activity.
 
@@ -96,6 +97,7 @@ To remove the dots and turn off automatic markers, run **Terminal Activity Monit
 | `terminalActivityDashboard.parkedAfterHours` | `24` | Turn a terminal's dot from yellow to white after this many hours without activity. |
 | `terminalActivityDashboard.refreshIntervalSeconds` | `5` | Process sampling and selected-terminal dot refresh cadence. |
 | `terminalActivityDashboard.nativeNameMarkers` | `true` | Prefix native terminal names with `🟢`, `🟡`, or `⚪`. |
+| `terminalActivityDashboard.applicationTitles` | `true` | Append application-supplied titles from shell-integrated commands started after activation. |
 | `terminalActivityDashboard.renameExistingTerminals` | `true` | Apply native name markers to terminals that were open before the extension activated. |
 
 ## How Activity Is Detected
@@ -106,7 +108,7 @@ The extension listens to VS Code terminal APIs for:
 - shell integration availability;
 - shell command start and end events.
 
-For shell-integrated commands, it observes output timing and immediately discards the content. On macOS and Linux, it also checks terminal-device modification times; on every platform it samples lightweight CPU counters as a fallback. This lets it recognize recent work inside long-running tools such as Codex without keeping an idle process green forever. No command lines or output content are collected.
+For shell-integrated commands, it observes output timing and parses only bounded application-title messages. On macOS and Linux, it also checks terminal-device modification times; on every platform it samples lightweight CPU counters as a fallback. This lets it recognize recent work inside long-running tools such as Codex without keeping an idle process green forever. No command lines or ordinary output text are retained.
 
 Recent shell output or substantial CPU activity keeps a terminal green even if it has not been focused recently. Merely keeping a process open does not.
 
@@ -114,30 +116,24 @@ Unknown pre-existing terminals begin white until activity is observed. The first
 
 VS Code does not expose arbitrary terminal output through a stable extension API, so background output that occurs outside shell-execution tracking may not update activity by itself.
 
-## Codex session names in terminal descriptions
+## Application and Codex session titles
 
-Codex CLI 0.163.0 can send its session name as the application terminal title. VS Code can display that title in the description beside this extension's activity dot and terminal name.
+Version 1.1.6 keeps application-supplied session titles beside activity dots automatically. For example, `🟢 Terminal · Investigate membership conversion` updates to the next session title when Codex renames or switches sessions. Custom terminal names remain intact. Set `terminalActivityDashboard.applicationTitles` to `false` to hide the extra title.
 
-In each Codex profile's `config.toml`, add this field to the existing `[tui]` table:
+This uses the shell-execution stream already observed for activity timing. It reads only OSC 0/2 title messages, handles messages split across output chunks, and rejects oversized or control-containing titles. Application-title text stays in memory and is never included in saved activity state; only the original terminal name and a label fingerprint are saved for safe restoration. No new background process, network request, or model call is added.
+
+Shell integration must be available, and the application command must start after the extension activates. Commands already running when the extension activates do not expose their earlier title stream. Background titles update when the terminal is selected or during a full refresh, following the same focus-preserving behavior as activity dots.
+
+VS Code 1.141 stops native application-title listening after a fixed terminal rename. Reading title messages from the existing execution stream keeps titles current despite that limitation. This does not change user or workspace description settings. An explicit `${sequence}` description can still show a title VS Code received before the rename; subsequent live titles appear in the marked terminal name.
+
+Codex controls which title it sends. To send just the session name in Codex CLI 0.163.0, add this field to the existing `[tui]` table in each Codex profile's `config.toml`:
 
 ```toml
 [tui]
 terminal_title = ["thread-title"]
 ```
 
-In VS Code user settings, use:
-
-```json
-"terminal.integrated.tabs.description": "${sequence}${separator}${task}${separator}${local}${separator}${cwdFolder}"
-```
-
-`${sequence}` reads the title sent by Codex, even when an activity marker or a manual rename has given the terminal a fixed name. Task, remote, and directory descriptions remain available after the session name. No extension update, background watcher, network request, or additional model call is required.
-
-Codex updates the title when the session name changes. The Codex setting applies when a TUI starts; already-running TUIs retain their in-memory title configuration. A session without a name may initially show its session ID. Existing terminal names and activity-dot behavior are preserved.
-
-Verified with Codex CLI 0.163.0 and VS Code 1.141: a native pseudo-terminal test emitted the exact renamed session title through OSC 0, and VS Code's installed label renderer reads that sequence for descriptions independently of a fixed terminal name.
-
-See the [official OpenAI terminal title documentation](https://learn.chatgpt.com/docs/developer-commands#configure-terminal-title-items-with-title).
+The extension does not change Codex configuration or generate session names. Codex applies this selection when a TUI starts; an unnamed session can initially send its session ID. See the [official OpenAI terminal title documentation](https://learn.chatgpt.com/docs/developer-commands#configure-terminal-title-items-with-title).
 
 ## Native Terminal Explorer Limitation
 
@@ -173,6 +169,7 @@ Useful files:
 - `src/model.ts` — three activity buckets, marker cleanup, and process parsing.
 - `src/renamer.ts` and `src/scheduler.ts` — selection-safe renaming and bounded work queues.
 - `src/processes.ts` and `src/state.ts` — process inspection and validated restoration.
+- `src/titles.ts` — bounded streaming parser for application-title messages.
 - `test/` — regression tests for tracking, renaming, queues, persistence, and process inspection.
 
 Packaging compiles the extension automatically. CI runs tests and builds a VSIX on macOS, Linux, and Windows with Node.js 22.

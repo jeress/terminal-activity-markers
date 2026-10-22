@@ -19,6 +19,7 @@ const started = event<{ terminal: vscode.Terminal; execution: { read(): AsyncIte
 let terminals: vscode.Terminal[] = [];
 let active: vscode.Terminal | undefined;
 let enabled = true;
+let applicationTitles = true;
 let renameCalls = 0;
 let rejectRename = false;
 const mock = {
@@ -33,7 +34,8 @@ const mock = {
   },
   workspace: {
     getConfiguration: () => ({
-      get: (key: string, fallback: unknown) => key === 'nativeNameMarkers' ? enabled : fallback,
+      get: (key: string, fallback: unknown) => key === 'nativeNameMarkers' ? enabled
+        : key === 'applicationTitles' ? applicationTitles : fallback,
       inspect: () => ({}), update: async (_: string, value: boolean) => { enabled = value; },
     }),
     onDidChangeConfiguration: event().subscribe,
@@ -57,7 +59,7 @@ try {
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 function fixture() {
   const terminal = { name: 'shell', processId: Promise.resolve(123), show: () => { throw new Error('Unexpected reveal'); } } as unknown as vscode.Terminal;
-  terminals = [terminal]; active = terminal; enabled = true; renameCalls = 0; rejectRename = false;
+  terminals = [terminal]; active = terminal; enabled = true; applicationTitles = true; renameCalls = 0; rejectRename = false;
   const writes: unknown[] = [];
   const context = { workspaceState: {
     get: () => [{ identity: 'host:123:start', lastActivity: 10 }],
@@ -176,4 +178,83 @@ test('closed terminals are excluded from the final persistence snapshot', async 
     tracker.dispose(); await settle();
     assert.deepEqual(f.writes.at(-1), []);
   } finally { tracker.dispose(); }
+});
+
+test('live application titles survive fixed marker names and preserve custom names', async () => {
+  const f = fixture();
+  const tracker = new TerminalActivityTracker(f.context, f.reader);
+  async function title(value: string) {
+    started.fire({ terminal: f.terminal, execution: { read: () => (async function* () {
+      yield '\x1b]0;'; yield value; yield '\x07';
+    })() } });
+    await settle(); await settle();
+  }
+  try {
+    await settle();
+    assert.equal(f.terminal.name, '⚪ shell');
+    await title('First session');
+    assert.equal(f.terminal.name, '🟢 shell · First session');
+    await title('Renamed session');
+    assert.equal(f.terminal.name, '🟢 shell · Renamed session');
+    (f.terminal as { name: string }).name = 'My project';
+    await tracker.refreshNativeNames();
+    assert.equal(f.terminal.name, '🟢 My project · Renamed session');
+    applicationTitles = false;
+    await tracker.refreshNativeNames();
+    assert.equal(f.terminal.name, '🟢 My project');
+    applicationTitles = true;
+    await tracker.refreshNativeNames();
+    assert.equal(f.terminal.name, '🟢 My project · Renamed session');
+    await tracker.clearNativeNameMarkers();
+    assert.equal(f.terminal.name, 'My project');
+  } finally { tracker.dispose(); }
+  await settle();
+  assert.equal(JSON.stringify(f.writes).includes('Renamed session'), false);
+});
+
+test('background title updates wait for selection without switching terminals', async () => {
+  const f = fixture();
+  const tracker = new TerminalActivityTracker(f.context, f.reader);
+  try {
+    await settle(); active = undefined;
+    started.fire({ terminal: f.terminal, execution: { read: () => (async function* () {
+      yield '\x1b]0;Background session\x07';
+    })() } });
+    await settle(); await settle();
+    assert.equal(f.terminal.name, '⚪ shell');
+    active = f.terminal; selected.fire(f.terminal); await settle();
+    assert.equal(f.terminal.name, '🟢 shell · Background session');
+  } finally { tracker.dispose(); }
+});
+
+test('reload restores only verified marker labels and does not accumulate session titles', async () => {
+  const f = fixture();
+  const first = new TerminalActivityTracker(f.context, f.reader);
+  await settle();
+  started.fire({ terminal: f.terminal, execution: { read: () => (async function* () {
+    yield '\x1b]0;Old session\x07';
+  })() } });
+  await settle(); await settle();
+  assert.equal(f.terminal.name, '🟢 shell · Old session');
+  first.dispose(); await settle();
+  const saved = f.writes.at(-1);
+  f.context.workspaceState.get = (() => saved) as typeof f.context.workspaceState.get;
+  const second = new TerminalActivityTracker(f.context, f.reader);
+  try {
+    await settle(); await second.refreshNativeNames();
+    assert.equal(f.terminal.name, '🟢 shell · Old session');
+    started.fire({ terminal: f.terminal, execution: { read: () => (async function* () {
+      yield '\x1b]0;New session\x07';
+    })() } });
+    await settle(); await settle();
+    assert.equal(f.terminal.name, '🟢 shell · New session');
+  } finally { second.dispose(); }
+  await settle();
+  (f.terminal as { name: string }).name = 'My custom · terminal name';
+  f.context.workspaceState.get = (() => f.writes.at(-1)) as typeof f.context.workspaceState.get;
+  const third = new TerminalActivityTracker(f.context, f.reader);
+  try {
+    await settle(); await third.refreshNativeNames();
+    assert.equal(f.terminal.name, '🟢 My custom · terminal name');
+  } finally { third.dispose(); }
 });
